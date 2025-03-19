@@ -1,0 +1,15 @@
+[package]
+name = "proof-api-l2"
+description = "Transaction proof builder for L2."
+include = ["src/**/*.rs", "src/**/*.tl", "./LICENSE-*", "./README.md"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
