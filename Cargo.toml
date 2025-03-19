@@ -11,6 +11,34 @@ resolver = "2"
 members = ["sync-service", "proof-api-l2", "proof-api-ton"]
 
 [workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5.3", features = ["derive"] }
+everscale-crypto = "0.3"
+everscale-types = { version = "0.1.2", default-features = false }
+futures-util = "0.3.31"
+rand = "0.8"
+rayon = "1.10"
+serde = "1.0"
+serde_json = "1.0.114"
+tokio = { version = "1", default-features = false }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+weedb = "0.4.1"
+
+tikv-jemallocator = { version = "0.6.0", features = [
+    "unprefixed_malloc_on_supported_platforms",
+    "background_threads",
+] }
+
+tycho-block-util = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
+tycho-core = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
+tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
+tycho-network = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
+tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
+tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
+
+[patch.crates-io]
+everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "245c7f05d7a737c8ebaad7224e7a8641f0b48f68" }
 
 [workspace.lints.rust]
 future_incompatible = "warn"
