@@ -95,12 +95,8 @@ impl Cmd {
         )
         .with_fallback(archive_block_provider.clone());
 
-        let _init_block_id = node
-            .init(ColdBootType::LatestPersistent, import_zerostate)
+        node.init(ColdBootType::LatestPersistent, import_zerostate)
             .await?;
-
-        // TODO: Replace with the latest key block search
-        // node.update_validator_set(&init_block_id).await?;
 
         node.run(
             archive_block_provider.chain((blockchain_block_provider, storage_block_provider)),

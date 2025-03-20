@@ -38,7 +38,7 @@ tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7f
 tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
 
 [patch.crates-io]
-everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "245c7f05d7a737c8ebaad7224e7a8641f0b48f68" }
+everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "cba01d49c969945fdd64d8ce052e73f06aea2e8c" }
 
 [workspace.lints.rust]
 future_incompatible = "warn"
