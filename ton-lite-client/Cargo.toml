@@ -1,0 +1,35 @@
+[package]
+name = "ton-lite-client"
+description = "TON Lite Client"
+include = ["src/**/*.rs", "src/**/*.tl", "./LICENSE-*", "./README.md"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+aes = { workspace = true }
+ahash = { workspace = true }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+broxus-util = { workspace = true, features = ["serde"] }
+ctr = { workspace = true }
+dashmap = { workspace = true }
+generic-array = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+tl-proto = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+everscale-crypto = { workspace = true, features = ["tl-proto", "serde"] }
+
+[lints]
+workspace = true

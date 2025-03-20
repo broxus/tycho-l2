@@ -8,21 +8,28 @@ license = "MIT OR Apache-2.0"
 
 [workspace]
 resolver = "2"
-members = ["sync-service", "proof-api-l2", "proof-api-ton"]
+members = ["sync-service", "proof-api-l2", "proof-api-ton", "ton-lite-client"]
 
 [workspace.dependencies]
+aes = "0.8"
 ahash = "0.8.11"
 aide = { version = "0.13.4", features = ["axum", "scalar"] }
 anyhow = "1.0"
 arc-swap = "1.7.1"
 axum = "0.7"
+base64 = "0.22.1"
+broxus-util = { version = "0.2", default-features = false }
 bytesize = "2.0.1"
 clap = { version = "4.5.3", features = ["derive"] }
+ctr = "0.9"
+dashmap = "5.5"
 everscale-crypto = "0.3"
 everscale-types = { version = "0.1.2", default-features = false }
 fdlimit = "0.3"
 futures-util = "0.3.31"
 humantime = "2.2"
+generic-array = "0.14"
+hex = "0.4.3"
 rand = "0.8"
 rayon = "1.10"
 rlimit = "0.10.1"
@@ -30,9 +37,12 @@ schemars = "0.8"
 scopeguard = "1.2"
 serde = "1.0"
 serde_json = "1.0.114"
+sha2 = "0.10"
 simd-json = "0.15.0"
+thiserror = "1.0"
 tl-proto = "0.5.2"
 tokio = { version = "1", default-features = false }
+tokio-util = { version = "0.7", default-features = false }
 tower = "0.5"
 tower-http = "0.6"
 tracing = "0.1"
