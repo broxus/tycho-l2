@@ -1,13 +1,72 @@
 use anyhow::Result;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockExtra, BlockInfo, CurrencyCollection, ShardHashes, ShardIdent};
+use everscale_types::models::{
+    BlockExtra, BlockId, BlockInfo, CurrencyCollection, ShardHashes, ShardIdent,
+};
 use everscale_types::prelude::*;
 
+/// Build merkle proof cell which contains a proof chain in its root.
+pub fn make_proof_chain(
+    mc_file_hash: &HashBytes,
+    mc_block: Cell,
+    shard_blocks: &[Cell],
+) -> Result<Cell, Error> {
+    let mut b = CellBuilder::new();
+    b.store_u256(mc_file_hash)?;
+    b.store_reference(mc_block)?;
+
+    let mut iter = shard_blocks.iter();
+    if let Some(sc_block) = iter.next() {
+        b.store_reference(sc_block.clone())?;
+
+        let mut iter = iter.rev();
+
+        let remaining = iter.len();
+        let mut child = if remaining % 3 != 0 {
+            let mut b = CellBuilder::new();
+            for cell in iter.by_ref().take(remaining % 3) {
+                b.store_reference(cell.clone())?;
+            }
+            Some(b.build()?)
+        } else {
+            None
+        };
+
+        for _ in 0..(remaining / 3) {
+            let sc1 = iter.next().unwrap();
+            let sc2 = iter.next().unwrap();
+            let sc3 = iter.next().unwrap();
+
+            let mut b = CellBuilder::new();
+            b.store_reference(sc3.clone())?;
+            b.store_reference(sc2.clone())?;
+            b.store_reference(sc1.clone())?;
+            if let Some(child) = child.take() {
+                b.store_reference(child)?;
+            }
+            child = Some(b.build()?);
+        }
+
+        if let Some(child) = child {
+            b.store_reference(child)?;
+        }
+    }
+
+    let cell = b.build()?;
+    CellBuilder::build_from(MerkleProof {
+        hash: *cell.hash(0),
+        depth: cell.depth(0),
+        cell,
+    })
+}
+
 /// Leaves only transaction hashes in block.
+///
+/// Input: full block.
 pub fn make_pruned_block<F>(block_root: Cell, mut on_tx: F) -> Result<Cell, Error>
 where
-    F: FnMut(Cell) -> Result<(), Error>,
+    for<'a> F: FnMut(&'a HashBytes, u64) -> Result<(), Error>,
 {
     let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
 
@@ -18,17 +77,9 @@ where
     let extra = raw_block.extra.parse::<BlockExtra>()?;
 
     if extra.custom.is_some() {
-        // Include block info for masterchain blocks.
+        // Include full block info for masterchain blocks.
         let info = raw_block.info.parse::<BlockInfo>()?;
-        // Access `prev_ref` data to include it into the cell.
-        info.prev_ref.data();
-
-        if let Some(master_ref) = &info.master_ref {
-            master_ref.inner().data();
-        }
-        if let Some(prev_vert_ref) = &info.prev_vert_ref {
-            prev_vert_ref.inner().data();
-        }
+        touch_block_info(&info);
     }
 
     let account_blocks = extra.account_blocks.load()?;
@@ -43,12 +94,11 @@ where
             transactions.into_root().map(|cell| usage_tree.track(&cell)),
         );
 
-        for item in transactions.values() {
-            let (_, tx) = item?;
+        for item in transactions.iter() {
+            let (lt, _) = item?;
 
-            // Handle tx (without affecting the usage tree).
-            let tx = Cell::untrack(tx);
-            on_tx(tx)?;
+            // Handle tx.
+            on_tx(&account_block.account, lt)?;
         }
     }
 
@@ -64,7 +114,53 @@ where
     Ok(pruned_block)
 }
 
-pub fn make_mc_proof(block_root: Cell, shard: ShardIdent) -> Result<Cell, Error> {
+/// Creates a small proof which can be used to build proof chains.
+///
+/// Input: full block.
+pub fn make_pivot_block_proof(is_masterchain: bool, block_root: Cell) -> Result<Cell, Error> {
+    let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
+
+    let tracked_root = usage_tree.track(&block_root);
+    let raw_block = tracked_root.parse::<BlockShort>()?;
+
+    // Include block info.
+    let info = raw_block.info.parse::<BlockInfo>()?;
+
+    if is_masterchain {
+        // Include full block info for masterchain blocks.
+        touch_block_info(&info);
+
+        // Include shard descriptions for all shards.
+        let extra = raw_block.extra.parse::<BlockExtraShort>()?;
+        let custom = extra
+            .custom
+            .ok_or(Error::CellUnderflow)?
+            .parse::<McBlockExtraShort>()?;
+
+        for item in custom.shard_hashes.raw_iter() {
+            item?;
+        }
+    } else {
+        // Include only prev block ref for shard blocks.
+        info.prev_ref.data();
+    }
+
+    // Build block proof.
+    let pruned_block = MerkleProof::create(block_root.as_ref(), usage_tree)
+        .prune_big_cells(true)
+        .build_raw_ext(Cell::empty_context())?;
+
+    if pruned_block.hash(0) != block_root.repr_hash() {
+        return Err(Error::InvalidData);
+    }
+
+    Ok(pruned_block)
+}
+
+/// Creates an mc block proof for the proof chain.
+///
+/// Input: pivot block.
+pub fn make_mc_proof(block_root: Cell, shard: ShardIdent) -> Result<McProofForShard, Error> {
     let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
 
     let tracked_root = usage_tree.track(&block_root);
@@ -88,7 +184,9 @@ pub fn make_mc_proof(block_root: Cell, shard: ShardIdent) -> Result<Cell, Error>
 
     let descr_root = find_shard_descr(shard_hashes.root(), shard.prefix())?;
     // Accessing data is required to mark the cell as visited.
-    descr_root.data();
+    let mut cs = descr_root.as_slice()?;
+    cs.skip_first(4, 0)?;
+    let latest_shard_seqno = cs.load_u32()?;
 
     // Build block proof.
     let pruned_block = MerkleProof::create(block_root.as_ref(), usage_tree)
@@ -99,9 +197,20 @@ pub fn make_mc_proof(block_root: Cell, shard: ShardIdent) -> Result<Cell, Error>
         return Err(Error::InvalidData);
     }
 
-    Ok(pruned_block)
+    Ok(McProofForShard {
+        root: pruned_block,
+        latest_shard_seqno,
+    })
 }
 
+pub struct McProofForShard {
+    pub root: Cell,
+    pub latest_shard_seqno: u32,
+}
+
+/// Creates a block with a single branch of the specified transaction.
+///
+/// Input: pruned block from [`make_pruned_block`].
 pub fn make_tx_proof(
     block_root: Cell,
     account: &HashBytes,
@@ -168,6 +277,16 @@ fn find_shard_descr(mut root: &'_ DynCell, mut prefix: u64) -> Result<&'_ DynCel
 
     // Root is now a `bt_leaf$0`.
     Ok(root)
+}
+
+fn touch_block_info(info: &BlockInfo) {
+    info.prev_ref.data();
+    if let Some(master_ref) = &info.master_ref {
+        master_ref.inner().data();
+    }
+    if let Some(prev_vert_ref) = &info.prev_vert_ref {
+        prev_vert_ref.inner().data();
+    }
 }
 
 #[derive(Load)]
@@ -240,9 +359,14 @@ mod tests {
         let block_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res/block.boc");
         let block_root = Boc::decode(std::fs::read(block_path)?)?;
 
+        // Pivot proof
+        println!("building pivot proof");
+        let pivot_proof = make_pivot_block_proof(false, block_root.clone())?;
+        println!("SHARD PROOF: {}", Boc::encode_base64(pivot_proof));
+
         // Remove everything except transaction hashes.
         println!("building pruned block");
-        let pruned_block = make_pruned_block(block_root, |_tx_root| Ok(()))?;
+        let pruned_block = make_pruned_block(block_root, |_, _| Ok(()))?;
 
         // Build a pruned block which contains a single branch to transaction.
         println!("building tx proof");
