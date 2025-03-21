@@ -2,12 +2,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use everscale_crypto::ed25519;
+use everscale_types::models::{BlockId, BlockIdShort};
 use tl_proto::{TlRead, TlWrite};
 
 use crate::config::LiteClientConfig;
+use crate::models::block_stuff::BlockStuff;
 use crate::proto;
 use crate::tcp_adnl::{TcpAdnl, TcpAdnlConfig, TcpAdnlError};
-use crate::utils::FromResponse;
 
 #[derive(Clone)]
 pub struct LiteClient {
@@ -38,29 +39,79 @@ impl LiteClient {
         })
     }
 
-    pub async fn get_version(&self) -> Result<proto::Version> {
-        self.query(proto::GetVersion).await
+    pub async fn get_version(&self) -> Result<u32> {
+        let version = self.query::<_, proto::Version>(proto::GetVersion).await?;
+        Ok(version.version)
     }
 
-    pub async fn get_masterchain_info(&self) -> Result<proto::MasterchainInfo> {
-        self.query(proto::GetMasterchainInfo).await
+    pub async fn get_last_mc_block_id(&self) -> Result<BlockId> {
+        let info = self
+            .query::<_, proto::MasterchainInfo>(proto::GetMasterchainInfo)
+            .await?;
+        Ok(info.last.into())
     }
 
-    pub async fn send_message<T: AsRef<[u8]>>(&self, message: T) -> Result<proto::SendMsgStatus> {
-        self.query(proto::SendMessage {
-            body: message.as_ref(),
-        })
-        .await
+    pub async fn send_message<T: AsRef<[u8]>>(&self, message: T) -> Result<u32> {
+        let status = self
+            .query::<_, proto::SendMsgStatus>(proto::SendMessage {
+                body: message.as_ref(),
+            })
+            .await?;
+
+        Ok(status.status)
+    }
+
+    pub async fn get_block(&self, id: BlockId) -> Result<BlockStuff> {
+        let block = self
+            .query::<_, proto::BlockData>(proto::GetBlock { id: id.into() })
+            .await?;
+        BlockStuff::new(&block.data, block.id.into())
+    }
+
+    pub async fn lookup_block(&self, id: BlockIdShort) -> Result<BlockId> {
+        let block_header = self
+            .query::<_, proto::BlockHeader>(proto::LookupBlock {
+                mode: (),
+                id: id.into(),
+                seqno: Some(()),
+                lt: None,
+                utime: None,
+            })
+            .await?;
+
+        Ok(block_header.id.into())
     }
 
     async fn query<Q, R>(&self, query: Q) -> Result<R>
     where
         Q: TlWrite<Repr = tl_proto::Boxed>,
-        R: FromResponse,
         for<'a> R: TlRead<'a>,
     {
+        enum QueryResponse<T> {
+            Ok(T),
+            Err(String),
+        }
+
+        impl<'a, R> tl_proto::TlRead<'a> for QueryResponse<R>
+        where
+            R: TlRead<'a>,
+        {
+            type Repr = tl_proto::Boxed;
+
+            fn read_from(packet: &mut &'a [u8]) -> tl_proto::TlResult<Self> {
+                let constructor = { <u32 as TlRead>::read_from(&mut packet.as_ref())? };
+                if constructor == proto::Error::TL_ID {
+                    let proto::Error { message, .. } = <_>::read_from(packet)?;
+                    Ok(QueryResponse::Err(message))
+                } else {
+                    <R>::read_from(packet).map(QueryResponse::Ok)
+                }
+            }
+        }
+
         match self.tcp_adnl.query(query, self.query_timeout).await {
-            Ok(Some(res)) => <R>::from_response(res),
+            Ok(Some(QueryResponse::Ok(data))) => Ok(data),
+            Ok(Some(QueryResponse::Err(message))) => Err(anyhow::Error::msg(message)),
             Ok(None) => Err(LiteClientError::QueryTimeout.into()),
             Err(e) => Err(LiteClientError::QueryFailed(e).into()),
         }

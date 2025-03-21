@@ -30,6 +30,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 everscale-crypto = { workspace = true, features = ["tl-proto", "serde"] }
+everscale-types = { workspace = true, features = ["models"] }
 
 [lints]
 workspace = true

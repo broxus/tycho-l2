@@ -3054,6 +3054,7 @@ dependencies = [
  "ctr",
  "dashmap",
  "everscale-crypto",
+ "everscale-types",
  "generic-array",
  "hex",
  "rand 0.8.5",

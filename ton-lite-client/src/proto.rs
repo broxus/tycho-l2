@@ -6,7 +6,7 @@ use tl_proto::{TlRead, TlWrite};
 #[tl(boxed, id = "adnl.message.query", scheme = "proto.tl")]
 pub struct AdnlMessageQuery<'tl, T> {
     #[tl(size_hint = 32)]
-    pub query_id: &'tl [u8; 32],
+    pub query_id: HashRef<'tl>,
     #[tl(with = "struct_as_bytes")]
     pub query: LiteQuery<T>,
 }
@@ -15,7 +15,7 @@ pub struct AdnlMessageQuery<'tl, T> {
 #[tl(boxed, id = "adnl.message.answer", scheme = "proto.tl")]
 pub struct AdnlMessageAnswer<'tl> {
     #[tl(size_hint = 32)]
-    pub query_id: &'tl [u8; 32],
+    pub query_id: HashRef<'tl>,
     pub data: &'tl [u8],
 }
 
@@ -27,6 +27,7 @@ pub struct LiteQuery<T> {
 }
 
 #[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.masterchainInfo", scheme = "proto.tl")]
 pub struct MasterchainInfo {
     pub last: BlockIdExt,
     pub state_root_hash: [u8; 32],
@@ -34,6 +35,7 @@ pub struct MasterchainInfo {
 }
 
 #[derive(Clone, Copy, Debug, TlRead)]
+#[tl(boxed, id = "liteServer.version", scheme = "proto.tl")]
 pub struct Version {
     pub mode: u32,
     pub version: u32,
@@ -42,11 +44,26 @@ pub struct Version {
 }
 
 #[derive(Clone, Copy, Debug, TlRead)]
+#[tl(boxed, id = "liteServer.sendMsgStatus", scheme = "proto.tl")]
 pub struct SendMsgStatus {
     pub status: u32,
 }
 
+#[derive(Debug, Clone, TlRead)]
+#[tl(boxed, id = "liteServer.blockData", scheme = "proto.tl")]
+pub struct BlockData {
+    pub id: BlockIdExt,
+    pub data: Vec<u8>,
+}
+
 #[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.blockHeader", scheme = "proto.tl")]
+pub struct BlockHeader {
+    pub id: BlockIdExt,
+}
+
+#[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.error", scheme = "proto.tl")]
 pub struct Error {
     pub code: i32,
     #[tl(with = "tl_string")]
@@ -66,7 +83,31 @@ pub struct WrappedQuery<T> {
     pub query: T,
 }
 
-pub type HashRef<'tl> = &'tl [u8; 32];
+#[derive(Copy, Clone, Debug, TlRead, TlWrite)]
+#[tl(size_hint = 68)]
+pub struct ZeroStateIdExt {
+    pub workchain: i32,
+    pub root_hash: [u8; 32],
+    pub file_hash: [u8; 32],
+}
+
+#[derive(Copy, Clone, Debug, TlRead, TlWrite)]
+#[tl(size_hint = 16)]
+pub struct BlockId {
+    pub workchain: i32,
+    pub shard: u64,
+    pub seqno: u32,
+}
+
+impl From<everscale_types::models::BlockIdShort> for BlockId {
+    fn from(item: everscale_types::models::BlockIdShort) -> Self {
+        BlockId {
+            workchain: item.shard.workchain(),
+            shard: item.shard.prefix(),
+            seqno: item.seqno,
+        }
+    }
+}
 
 #[derive(Copy, Clone, Debug, TlRead, TlWrite)]
 #[tl(size_hint = 80)]
@@ -78,15 +119,31 @@ pub struct BlockIdExt {
     pub file_hash: [u8; 32],
 }
 
-#[derive(Copy, Clone, Debug, TlRead, TlWrite)]
-#[tl(size_hint = 68)]
-pub struct ZeroStateIdExt {
-    pub workchain: i32,
-    #[tl(size_hint = 32)]
-    pub root_hash: [u8; 32],
-    #[tl(size_hint = 32)]
-    pub file_hash: [u8; 32],
+impl From<BlockIdExt> for everscale_types::models::BlockId {
+    fn from(item: BlockIdExt) -> Self {
+        everscale_types::models::BlockId {
+            shard: everscale_types::models::ShardIdent::new(item.workchain, item.shard)
+                .unwrap_or_default(),
+            seqno: item.seqno,
+            root_hash: item.root_hash.into(),
+            file_hash: item.file_hash.into(),
+        }
+    }
 }
+
+impl From<everscale_types::models::BlockId> for BlockIdExt {
+    fn from(item: everscale_types::models::BlockId) -> Self {
+        BlockIdExt {
+            workchain: item.shard.workchain(),
+            shard: item.shard.prefix(),
+            seqno: item.seqno,
+            root_hash: item.root_hash.0,
+            file_hash: item.file_hash.0,
+        }
+    }
+}
+
+pub type HashRef<'tl> = &'tl [u8; 32];
 
 // ----- Functions ----- //
 
@@ -104,22 +161,24 @@ pub struct GetVersion;
 #[tl(boxed, id = "liteServer.getMasterchainInfo", scheme = "proto.tl")]
 pub struct GetMasterchainInfo;
 
-// ----- Responses ----- //
+#[derive(Copy, Clone, TlWrite)]
+#[tl(boxed, id = "liteServer.getBlock", scheme = "proto.tl")]
+pub struct GetBlock {
+    pub id: BlockIdExt,
+}
 
-#[derive(TlRead)]
-#[tl(boxed)]
-pub enum Response {
-    #[tl(id = 0x5a0491e5)]
-    Version(Version),
-
-    #[tl(id = 0x85832881)]
-    MasterchainInfo(MasterchainInfo),
-
-    #[tl(id = 0x3950e597)]
-    SendMsgStatus(SendMsgStatus),
-
-    #[tl(id = 0xbba9e148)]
-    Error(Error),
+#[derive(Copy, Clone, Debug, TlRead, TlWrite)]
+#[tl(boxed, id = "liteServer.lookupBlock", scheme = "proto.tl")]
+pub struct LookupBlock {
+    #[tl(flags)]
+    pub mode: (),
+    pub id: BlockId,
+    #[tl(flags_bit = "mode.0")]
+    pub seqno: Option<()>,
+    #[tl(flags_bit = "mode.1")]
+    pub lt: Option<u64>,
+    #[tl(flags_bit = "mode.2")]
+    pub utime: Option<u32>,
 }
 
 mod tl_string {
