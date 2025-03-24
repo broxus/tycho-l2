@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use everscale_types::models::BlockId;
 use futures_util::future::BoxFuture;
+use serde::{Deserialize, Serialize};
 use tycho_block_util::archive::ArchiveData;
 use tycho_block_util::block::BlockStuff;
 use tycho_core::block_strider::{
@@ -10,6 +11,8 @@ use tycho_core::block_strider::{
 };
 use tycho_storage::{BlockConnection, BlockHandle, NewBlockMeta, Storage};
 use tycho_util::cli::signal;
+
+use crate::storage::{ProofStorage, ProofStorageConfig};
 
 #[derive(Parser)]
 pub struct Cmd {
@@ -80,6 +83,12 @@ impl Cmd {
         let mut node = self.base.create(node_config.clone()).await?;
         tracing::info!("created tycho node");
 
+        let proofs =
+            ProofStorage::new(node.storage().root(), node_config.user_config.proof_storage)
+                .await
+                .context("failed to create proof storage")?;
+        tracing::info!("created proofs storage");
+
         let archive_block_provider = ArchiveBlockProvider::new(
             node.blockchain_rpc_client().clone(),
             node.storage().clone(),
@@ -102,6 +111,7 @@ impl Cmd {
             archive_block_provider.chain((blockchain_block_provider, storage_block_provider)),
             LightSubscriber {
                 storage: node.storage().clone(),
+                proofs,
             },
         )
         .await?;
@@ -112,6 +122,7 @@ impl Cmd {
 
 pub struct LightSubscriber {
     storage: Storage,
+    proofs: ProofStorage,
 }
 
 impl LightSubscriber {
@@ -187,6 +198,11 @@ impl LightSubscriber {
             }
         }
 
+        // Store proof.
+        self.proofs
+            .store_block(cx.block.clone(), cx.mc_block_id.seqno)
+            .await?;
+
         Ok(handle)
     }
 
@@ -215,6 +231,12 @@ impl LightSubscriber {
             .block_handle_storage()
             .set_block_applied(&handle);
 
+        // Update proofs storage snapshot on masterchain blocks.
+        if cx.block.id().is_masterchain() {
+            self.proofs.update_snapshot();
+        }
+
+        // Done
         Ok(())
     }
 }
@@ -238,4 +260,10 @@ impl BlockSubscriber for LightSubscriber {
     }
 }
 
-type NodeConfig = tycho_light_node::NodeConfig<()>;
+type NodeConfig = tycho_light_node::NodeConfig<NodeConfigExtra>;
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct NodeConfigExtra {
+    pub proof_storage: ProofStorageConfig,
+}

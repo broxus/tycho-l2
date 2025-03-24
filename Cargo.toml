@@ -14,13 +14,16 @@ members = ["sync-service", "proof-api-l2", "proof-api-ton"]
 ahash = "0.8.11"
 anyhow = "1.0"
 arc-swap = "1.7.1"
+bytesize = "2.0.1"
 clap = { version = "4.5.3", features = ["derive"] }
 everscale-crypto = "0.3"
 everscale-types = { version = "0.1.2", default-features = false }
+fdlimit = "0.3"
 futures-util = "0.3.31"
 humantime = "2.2"
 rand = "0.8"
 rayon = "1.10"
+rlimit = "0.10.1"
 scopeguard = "1.2"
 serde = "1.0"
 serde_json = "1.0.114"

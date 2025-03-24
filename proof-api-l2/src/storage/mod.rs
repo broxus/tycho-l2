@@ -1,12 +1,16 @@
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
+use bytesize::ByteSize;
 use everscale_types::error::Error;
 use everscale_types::models::{ShardIdent, StdAddr};
 use everscale_types::prelude::*;
+use serde::{Deserialize, Serialize};
 use tycho_block_util::block::BlockStuff;
+use tycho_storage::FileDb;
 use tycho_util::sync::CancellationFlag;
 use weedb::{
     rocksdb, Caches, MigrationError, OwnedSnapshot, Semver, VersionProvider, WeeDb, WeeDbRaw,
@@ -15,12 +19,100 @@ use weedb::{
 pub mod block;
 pub mod tables;
 
+const PROOFS_SUBDIR: &'static str = "proofs";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProofStorageConfig {
+    pub rocksdb_lru_capacity: ByteSize,
+    pub rocksdb_enable_metrics: bool,
+}
+
+impl Default for ProofStorageConfig {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            rocksdb_lru_capacity: ByteSize::gb(4),
+            rocksdb_enable_metrics: false,
+        }
+    }
+}
+
+#[derive(Clone)]
+#[repr(transparent)]
 pub struct ProofStorage {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
     db: ProofDb,
     snapshot: ArcSwap<OwnedSnapshot>,
 }
 
 impl ProofStorage {
+    pub async fn new(root: &FileDb, config: ProofStorageConfig) -> Result<Self> {
+        const MAX_THREADS: usize = 8;
+
+        let caches = weedb::Caches::with_capacity(config.rocksdb_lru_capacity.as_u64() as _);
+
+        let threads = std::thread::available_parallelism()?.get().min(MAX_THREADS);
+        let fdlimit = match fdlimit::raise_fd_limit() {
+            // New fd limit
+            Ok(fdlimit::Outcome::LimitRaised { to, .. }) => to,
+            // Current soft limit
+            _ => {
+                rlimit::getrlimit(rlimit::Resource::NOFILE)
+                    .unwrap_or((256, 0))
+                    .0
+            }
+        };
+
+        let db = ProofDb::builder(root.create_subdir(PROOFS_SUBDIR)?.path(), caches)
+            .with_name(ProofDb::NAME)
+            .with_metrics_enabled(config.rocksdb_enable_metrics)
+            .with_options(|opts, _| {
+                opts.set_paranoid_checks(false);
+
+                // parallel compactions finishes faster - less write stalls
+                opts.set_max_subcompactions(threads as u32 / 2);
+
+                // io
+                opts.set_max_open_files(fdlimit as i32);
+
+                // logging
+                opts.set_log_level(rocksdb::LogLevel::Info);
+                opts.set_keep_log_file_num(2);
+                opts.set_recycle_log_file_num(2);
+
+                // cf
+                opts.create_if_missing(true);
+                opts.create_missing_column_families(true);
+
+                // cpu
+                opts.set_max_background_jobs(std::cmp::max((threads as i32) / 2, 2));
+                opts.increase_parallelism(threads as i32);
+
+                opts.set_allow_concurrent_memtable_write(false);
+            })
+            .build()?;
+
+        db.apply_migrations().await?;
+
+        let snapshot = db.owned_snapshot();
+
+        Ok(Self {
+            inner: Arc::new(Inner {
+                db,
+                snapshot: ArcSwap::new(Arc::new(snapshot)),
+            }),
+        })
+    }
+
+    pub fn update_snapshot(&self) {
+        let snapshot = self.inner.db.owned_snapshot();
+        self.inner.snapshot.store(Arc::new(snapshot));
+    }
+
     pub async fn build_proof(&self, account: &StdAddr, lt: u64) -> Result<Option<Cell>> {
         fn decode_block(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(HashBytes, Cell)> {
             let data = data.as_ref();
@@ -29,6 +121,8 @@ impl ProofStorage {
             Ok((file_hash, cell))
         }
 
+        let this = self.inner.as_ref();
+
         let mut tx_key = [0u8; tables::Transactions::KEY_LEN];
         tx_key[0..8].copy_from_slice(&lt.to_be_bytes());
         tx_key[8] = account.workchain as u8;
@@ -36,7 +130,7 @@ impl ProofStorage {
 
         let mut block_key;
         let ref_by_mc_seqno;
-        match self.db.transactions.get(tx_key)? {
+        match this.db.transactions.get(tx_key)? {
             Some(value) => {
                 let value = value.as_ref();
                 block_key = <[u8; 32]>::try_from(&value[..13]).unwrap();
@@ -60,8 +154,8 @@ impl ProofStorage {
         let is_masterchain = account.is_masterchain();
         let account = account.address;
 
-        let db = self.db.clone();
-        let snapshot = self.snapshot.load_full();
+        let db = this.db.clone();
+        let snapshot = this.snapshot.load_full();
         let cancelled = cancelled.clone();
         tokio::task::spawn_blocking(move || {
             check(&cancelled)?;
@@ -169,7 +263,7 @@ impl ProofStorage {
 
         let span = tracing::Span::current();
 
-        let db = self.db.clone();
+        let db = self.inner.db.clone();
         let cancelled = cancelled.clone();
         tokio::task::spawn_blocking(move || {
             let _span = span.enter();

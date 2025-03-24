@@ -13,13 +13,16 @@ license.workspace = true
 ahash = { workspace = true }
 anyhow = { workspace = true }
 arc-swap = { workspace = true }
+bytesize = { workspace = true, features = ["serde"] }
 clap = { workspace = true }
 everscale-crypto = { workspace = true }
 everscale-types = { workspace = true, features = ["sync", "tycho", "models", "rand", "base64"] }
+fdlimit = { workspace = true }
 futures-util = { workspace = true }
 humantime = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
+rlimit = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

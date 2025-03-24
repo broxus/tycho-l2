@@ -1,9 +1,7 @@
 use anyhow::Result;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
-    BlockExtra, BlockId, BlockInfo, CurrencyCollection, ShardHashes, ShardIdent,
-};
+use everscale_types::models::{BlockExtra, BlockInfo, CurrencyCollection, ShardHashes, ShardIdent};
 use everscale_types::prelude::*;
 
 /// Build merkle proof cell which contains a proof chain in its root.

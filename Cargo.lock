@@ -328,6 +328,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bytesize"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3c8f83209414aacf0eeae3cf730b18d6981697fba62f200fcfb92b9f082acba"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bzip2-sys"
 version = "0.1.13+1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1800,13 +1809,16 @@ dependencies = [
  "ahash",
  "anyhow",
  "arc-swap",
+ "bytesize 2.0.1",
  "clap",
  "everscale-crypto",
  "everscale-types",
+ "fdlimit",
  "futures-util",
  "humantime",
  "rand 0.8.5",
  "rayon",
+ "rlimit",
  "scopeguard",
  "serde",
  "serde_json",
@@ -2961,7 +2973,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bytes",
- "bytesize",
+ "bytesize 1.3.2",
  "everscale-types",
  "futures-util",
  "humantime",
@@ -3013,7 +3025,7 @@ dependencies = [
  "arc-swap",
  "base64",
  "bytes",
- "bytesize",
+ "bytesize 1.3.2",
  "castaway",
  "dashmap",
  "ed25519",
@@ -3082,7 +3094,7 @@ dependencies = [
  "bitflags",
  "bumpalo",
  "bytes",
- "bytesize",
+ "bytesize 1.3.2",
  "crc32c",
  "dashmap",
  "everscale-types",
