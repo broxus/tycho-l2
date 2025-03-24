@@ -1930,6 +1930,7 @@ dependencies = [
  "serde_json",
  "simd-json",
  "tikv-jemallocator",
+ "tl-proto",
  "tokio",
  "tower",
  "tower-http",

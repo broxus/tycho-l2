@@ -88,6 +88,27 @@ impl ColumnFamilyOptions<Caches> for Transactions {
     }
 }
 
+/// Stores block proof signatures.
+/// - Key: `mc_seqno: u32`
+/// - Value: `utime_since: u32, signatures: ...BOC`
+pub struct Signatures;
+
+impl Signatures {
+    pub const KEY_LEN: usize = 4;
+}
+
+impl ColumnFamily for Signatures {
+    const NAME: &'static str = "signatures";
+}
+
+impl ColumnFamilyOptions<Caches> for Signatures {
+    fn options(opts: &mut Options, ctx: &mut Caches) {
+        zstd_block_based_table_factory(opts, ctx);
+        opts.set_compression_type(DBCompressionType::Zstd);
+        with_blob_db(opts, DEFAULT_MIN_BLOB_SIZE, DBCompressionType::Zstd);
+    }
+}
+
 fn default_block_based_table_factory(opts: &mut Options, caches: &Caches) {
     opts.set_level_compaction_dynamic_level_bytes(true);
     let mut block_factory = BlockBasedOptions::default();

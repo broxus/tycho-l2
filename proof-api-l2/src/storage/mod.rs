@@ -3,10 +3,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapAny, ArcSwapOption};
 use bytesize::ByteSize;
 use everscale_types::error::Error;
-use everscale_types::models::{ShardIdent, StdAddr};
+use everscale_types::models::{BlockSignature, ShardIdent, StdAddr, ValidatorSet};
 use everscale_types::prelude::*;
 use serde::{Deserialize, Serialize};
 use tycho_block_util::block::BlockStuff;
@@ -47,6 +47,7 @@ pub struct ProofStorage {
 struct Inner {
     db: ProofDb,
     snapshot: ArcSwap<OwnedSnapshot>,
+    current_vset: ArcSwapOption<ValidatorSet>,
 }
 
 impl ProofStorage {
@@ -104,6 +105,7 @@ impl ProofStorage {
             inner: Arc::new(Inner {
                 db,
                 snapshot: ArcSwap::new(Arc::new(snapshot)),
+                current_vset: ArcSwapAny::default(),
             }),
         })
     }
@@ -113,12 +115,23 @@ impl ProofStorage {
         self.inner.snapshot.store(Arc::new(snapshot));
     }
 
+    pub fn set_current_vset(&self, vset: Arc<ValidatorSet>) {
+        self.inner.current_vset.store(Some(vset));
+    }
+
     pub async fn build_proof(&self, account: &StdAddr, lt: u64) -> Result<Option<Cell>> {
         fn decode_block(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(HashBytes, Cell)> {
             let data = data.as_ref();
             let file_hash = HashBytes::from_slice(&data[..32]);
             let cell = Boc::decode(&data[32..])?;
             Ok((file_hash, cell))
+        }
+
+        fn decode_signatures(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(u32, Cell)> {
+            let data = data.as_ref();
+            let utime_since = u32::from_le_bytes(data[..4].try_into().unwrap());
+            let cell = Boc::decode(&data[4..])?;
+            Ok((utime_since, cell))
         }
 
         let this = self.inner.as_ref();
@@ -162,6 +175,7 @@ impl ProofStorage {
 
             let pruned_blocks_cf = &db.pruned_blocks.cf();
             let pivot_blocks_cf = &db.pivot_blocks.cf();
+            let signatures_cf = &db.signatures.cf();
 
             let (tx_block_hash, block_with_tx) = snapshot
                 .get_pinned_cf_opt(
@@ -179,6 +193,17 @@ impl ProofStorage {
 
             check(&cancelled)?;
 
+            // Get signatures.
+            let (vset_utime_since, signatures) = snapshot
+                .get_pinned_cf_opt(
+                    signatures_cf,
+                    ref_by_mc_seqno.to_be_bytes(),
+                    db.signatures.new_read_config(),
+                )?
+                .context("signatures not found")
+                .and_then(decode_signatures)?;
+
+            // Get all required blocks.
             let file_hash;
             let mc_proof;
             let mut shard_proofs = Vec::new();
@@ -232,19 +257,37 @@ impl ProofStorage {
 
             check(&cancelled)?;
 
-            let proof_chain = block::make_proof_chain(&file_hash, mc_proof, &shard_proofs)?;
+            let proof_chain = block::make_proof_chain(
+                &file_hash,
+                mc_proof,
+                &shard_proofs,
+                vset_utime_since,
+                signatures,
+            )?;
             Ok::<_, anyhow::Error>(Some(proof_chain))
         })
         .await?
     }
 
     #[tracing::instrument(skip_all)]
-    pub async fn store_block(&self, block: BlockStuff, ref_by_mc_seqno: u32) -> Result<()> {
+    pub async fn store_block(
+        &self,
+        block: BlockStuff,
+        signatures: Dict<u16, BlockSignature>,
+        ref_by_mc_seqno: u32,
+    ) -> Result<()> {
         use everscale_types::boc::ser::BocHeader;
 
         fn encode_block(file_hash: &HashBytes, cell: Cell) -> Vec<u8> {
             let mut target = Vec::with_capacity(1024);
             target.extend_from_slice(file_hash.as_slice());
+            BocHeader::<ahash::RandomState>::with_root(cell.as_ref()).encode(&mut target);
+            target
+        }
+
+        fn encode_signatures(vset_utime_since: u32, cell: Cell) -> Vec<u8> {
+            let mut target = Vec::with_capacity(256);
+            target.extend_from_slice(&vset_utime_since.to_le_bytes());
             BocHeader::<ahash::RandomState>::with_root(cell.as_ref()).encode(&mut target);
             target
         }
@@ -263,6 +306,12 @@ impl ProofStorage {
 
         let span = tracing::Span::current();
 
+        let vset = self
+            .inner
+            .current_vset
+            .load_full()
+            .context("no current vset found")?;
+
         let db = self.inner.db.clone();
         let cancelled = cancelled.clone();
         tokio::task::spawn_blocking(move || {
@@ -271,6 +320,20 @@ impl ProofStorage {
             check(&cancelled)?;
 
             let is_masterchain = block_id.is_masterchain();
+
+            let signatures_rx = if is_masterchain {
+                let vset = vset.clone();
+                let (signatures_tx, signatures_rx) = tokio::sync::oneshot::channel();
+                rayon::spawn(move || {
+                    let res = block::prepare_signatures(signatures, &vset)
+                        .map(|cell| encode_signatures(vset.utime_since, cell));
+
+                    signatures_tx.send(res).ok();
+                });
+                Some(signatures_rx)
+            } else {
+                None
+            };
 
             let (pivot_tx, pivot_rx) = tokio::sync::oneshot::channel();
             rayon::spawn({
@@ -291,6 +354,7 @@ impl ProofStorage {
             let pruned_blocks_cf = &db.pruned_blocks.cf();
             let pivot_blocks_cf = &db.pivot_blocks.cf();
             let transactions_cf = &db.transactions.cf();
+            let signatures_cf = &db.signatures.cf();
             let mut batch = rocksdb::WriteBatch::new();
 
             let mut tx_value = [0; tables::Transactions::VALUE_LEN];
@@ -324,6 +388,13 @@ impl ProofStorage {
             check(&cancelled)?;
 
             batch.put_cf(pruned_blocks_cf, &tx_value[0..13], pruned);
+
+            // Wait for signatures and put them to the batch.
+            if let Some(signatures) = signatures_rx {
+                debug_assert!(block_id.is_masterchain());
+                let signatures = signatures.blocking_recv()??;
+                batch.put_cf(signatures_cf, block_id.seqno.to_be_bytes(), signatures);
+            }
 
             // Wait for the pivot block proof and put it to the batch.
             let pivot = pivot_rx.blocking_recv()??;
@@ -417,6 +488,7 @@ weedb::tables! {
         pruned_blocks: tables::PrunedBlocks,
         pivot_blocks: tables::PivotBlocks,
         transactions: tables::Transactions,
+        signatures: tables::Signatures,
     }
 }
 

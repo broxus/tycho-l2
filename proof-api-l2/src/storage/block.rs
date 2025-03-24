@@ -1,18 +1,70 @@
+use ahash::HashMapExt;
 use anyhow::Result;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockExtra, BlockInfo, CurrencyCollection, ShardHashes, ShardIdent};
+use everscale_types::models::{
+    BlockExtra, BlockInfo, BlockSignature, CurrencyCollection, ShardHashes, ShardIdent,
+    ValidatorSet,
+};
 use everscale_types::prelude::*;
+use tycho_util::FastHashMap;
+
+/// Prepares a signatures dict with validator indices as keys.
+pub fn prepare_signatures(
+    signatures: Dict<u16, BlockSignature>,
+    vset: &ValidatorSet,
+) -> Result<Cell, Error> {
+    struct PlainSignature([u8; 64]);
+
+    impl Store for PlainSignature {
+        #[inline]
+        fn store_into(&self, b: &mut CellBuilder, _: &dyn CellContext) -> Result<(), Error> {
+            b.store_raw(&self.0, 512)
+        }
+    }
+
+    let mut block_signatures = FastHashMap::new();
+    for entry in signatures.values() {
+        let entry = entry?;
+        let res = block_signatures.insert(entry.node_id_short, entry.signature);
+        if res.is_some() {
+            tracing::error!("duplicate signatures");
+            return Err(Error::InvalidData);
+        }
+    }
+
+    let mut result = Vec::with_capacity(block_signatures.len());
+    for (i, desc) in vset.list.iter().enumerate() {
+        let key_hash = tl_proto::hash(everscale_crypto::tl::PublicKey::Ed25519 {
+            key: desc.public_key.as_array(),
+        });
+        let Some(signature) = block_signatures.remove(HashBytes::wrap(&key_hash)) else {
+            continue;
+        };
+        result.push((i as u16, PlainSignature(signature.0)));
+    }
+
+    if !block_signatures.is_empty() {
+        return Err(Error::InvalidData);
+    }
+
+    let signatures = Dict::try_from_sorted_slice(&result)?;
+    signatures.into_root().ok_or(Error::EmptyProof)
+}
 
 /// Build merkle proof cell which contains a proof chain in its root.
 pub fn make_proof_chain(
     mc_file_hash: &HashBytes,
     mc_block: Cell,
     shard_blocks: &[Cell],
+    vset_utime_since: u32,
+    signatures: Cell,
 ) -> Result<Cell, Error> {
     let mut b = CellBuilder::new();
     b.store_u256(mc_file_hash)?;
+    b.store_u32(vset_utime_since)?;
     b.store_reference(mc_block)?;
+    b.store_reference(signatures)?;
 
     let mut iter = shard_blocks.iter();
     if let Some(sc_block) = iter.next() {
