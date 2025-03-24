@@ -60,6 +60,66 @@ pub struct BlockData {
 #[tl(boxed, id = "liteServer.blockHeader", scheme = "proto.tl")]
 pub struct BlockHeader {
     pub id: BlockIdExt,
+    #[tl(flags)]
+    pub mode: (),
+    pub header_proof: Vec<u8>,
+}
+
+#[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.partialBlockProof", scheme = "proto.tl")]
+pub struct PartialBlockProof {
+    pub complete: bool,
+    pub from: BlockIdExt,
+    pub to: BlockIdExt,
+    pub steps: Vec<BlockLink>,
+}
+
+#[derive(Debug, TlRead)]
+#[tl(boxed, scheme = "proto.tl")]
+pub enum BlockLink {
+    #[tl(id = "liteServer.blockLinkBack")]
+    BlockLinkBack {
+        to_key_block: bool,
+        from: BlockIdExt,
+        to: BlockIdExt,
+        dest_proof: Vec<u8>,
+        proof: Vec<u8>,
+        state_proof: Vec<u8>,
+    },
+    #[tl(id = "liteServer.blockLinkForward")]
+    BlockLinkForward {
+        to_key_block: bool,
+        from: BlockIdExt,
+        to: BlockIdExt,
+        dest_proof: Vec<u8>,
+        config_proof: Vec<u8>,
+        signatures: SignatureSet,
+    },
+}
+
+#[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.signatureSet", scheme = "proto.tl")]
+pub struct SignatureSet {
+    pub validator_set_hash: u32,
+    pub catchain_seqno: u32,
+    pub signatures: Vec<Signature>,
+}
+
+#[derive(Debug, TlRead)]
+// #[tl(boxed, id = "liteServer.signature", scheme = "proto.tl")]
+pub struct Signature {
+    pub node_id_short: [u8; 32],
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.configInfo", scheme = "proto.tl")]
+pub struct ConfigInfo {
+    #[tl(flags)]
+    pub mode: (),
+    pub id: BlockIdExt,
+    pub state_proof: Vec<u8>,
+    pub config_proof: Vec<u8>,
 }
 
 #[derive(Debug, TlRead)]
@@ -167,7 +227,7 @@ pub struct GetBlock {
     pub id: BlockIdExt,
 }
 
-#[derive(Copy, Clone, Debug, TlRead, TlWrite)]
+#[derive(Copy, Clone, Debug, TlWrite)]
 #[tl(boxed, id = "liteServer.lookupBlock", scheme = "proto.tl")]
 pub struct LookupBlock {
     #[tl(flags)]
@@ -179,6 +239,26 @@ pub struct LookupBlock {
     pub lt: Option<u64>,
     #[tl(flags_bit = "mode.2")]
     pub utime: Option<u32>,
+}
+
+#[derive(Clone, Debug, TlWrite)]
+#[tl(boxed, id = "liteServer.getBlockProof", scheme = "proto.tl")]
+pub struct GetBlockProof {
+    #[tl(flags)]
+    pub mode: (),
+    pub known_block: BlockIdExt,
+    #[tl(flags_bit = "mode.0")]
+    pub target_block: Option<BlockIdExt>,
+}
+
+#[derive(Clone, Debug, TlWrite)]
+#[tl(boxed, id = "liteServer.getConfigAll", scheme = "proto.tl")]
+pub struct GetConfigAll {
+    #[tl(flags)]
+    pub mode: (),
+    pub id: BlockIdExt,
+    #[tl(flags_bit = "mode.4")]
+    pub with_validator_set: Option<()>,
 }
 
 mod tl_string {

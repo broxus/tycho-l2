@@ -2,12 +2,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use everscale_crypto::ed25519;
-use everscale_types::models::{BlockId, BlockIdShort};
+use everscale_types::cell::HashBytes;
+use everscale_types::merkle::MerkleProof;
+use everscale_types::models::{BlockId, BlockIdShort, BlockSignature, Signature};
 use tl_proto::{TlRead, TlWrite};
 
 use crate::config::LiteClientConfig;
-use crate::models::block_stuff::BlockStuff;
+use crate::models::block::{BlockProof, BlockShort, BlockStuff};
 use crate::proto;
+use crate::proto::BlockLink;
 use crate::tcp_adnl::{TcpAdnl, TcpAdnlConfig, TcpAdnlError};
 
 #[derive(Clone)]
@@ -82,6 +85,57 @@ impl LiteClient {
         Ok(block_header.id.into())
     }
 
+    pub async fn get_block_proof(&self, from: BlockId, to: Option<BlockId>) -> Result<BlockProof> {
+        let block_proof = self
+            .query::<_, proto::PartialBlockProof>(proto::GetBlockProof {
+                mode: (),
+                known_block: from.into(),
+                target_block: to.map(Into::into),
+            })
+            .await?;
+
+        for block_link in block_proof.steps {
+            match block_link {
+                BlockLink::BlockLinkBack { .. } => {}
+                BlockLink::BlockLinkForward {
+                    config_proof,
+                    signatures,
+                    ..
+                } => {
+                    let proof = everscale_types::boc::Boc::decode(&config_proof)?
+                        .parse_exotic::<MerkleProof>()?;
+
+                    let block = proof.cell.virtualize().parse::<BlockShort>()?;
+                    let extra = block.load_extra()?;
+
+                    let config = extra.load_config()?;
+
+                    let signatures = signatures
+                        .signatures
+                        .into_iter()
+                        .map(|x| -> Result<BlockSignature> {
+                            Ok(BlockSignature {
+                                node_id_short: HashBytes::from(x.node_id_short),
+                                signature: Signature(
+                                    x.signature
+                                        .try_into()
+                                        .map_err(|_e| LiteClientError::InvalidBlockProof)?,
+                                ),
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    return Ok(BlockProof {
+                        signatures,
+                        validator_set: config.get_current_validator_set()?,
+                    });
+                }
+            }
+        }
+
+        Err(LiteClientError::InvalidBlockProof.into())
+    }
+
     async fn query<Q, R>(&self, query: Q) -> Result<R>
     where
         Q: TlWrite<Repr = tl_proto::Boxed>,
@@ -126,4 +180,6 @@ pub enum LiteClientError {
     QueryFailed(#[source] TcpAdnlError),
     #[error("query timeout")]
     QueryTimeout,
+    #[error("invalid block proof")]
+    InvalidBlockProof,
 }
