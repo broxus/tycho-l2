@@ -133,7 +133,7 @@ impl ProofStorage {
         match this.db.transactions.get(tx_key)? {
             Some(value) => {
                 let value = value.as_ref();
-                block_key = <[u8; 32]>::try_from(&value[..13]).unwrap();
+                block_key = <[u8; 13]>::try_from(&value[..13]).unwrap();
                 ref_by_mc_seqno = u32::from_le_bytes(value[13..17].try_into().unwrap());
             }
             None => return Ok(None),
@@ -215,14 +215,14 @@ impl ProofStorage {
                     check(&cancelled)?;
 
                     block_key[9..13].copy_from_slice(&seqno.to_be_bytes());
-                    let sc_block = snapshot
+                    let (_, sc_block) = snapshot
                         .get_pinned_cf_opt(
                             pivot_blocks_cf,
                             block_key.as_slice(),
                             db.pivot_blocks.new_read_config(),
                         )?
                         .context("pivot shard block not found")
-                        .and_then(|data| Boc::decode(data).map_err(Into::into))?;
+                        .and_then(decode_block)?;
 
                     shard_proofs.push(sc_block);
                 }

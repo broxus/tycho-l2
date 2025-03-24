@@ -6,7 +6,6 @@ use clap::{Parser, Subcommand};
 mod cmd {
     pub mod run;
 }
-mod storage;
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -31,6 +30,8 @@ fn main() -> ExitCode {
 }
 
 #[derive(Parser)]
+#[clap(version = proof_api_l2::version_string())]
+#[clap(subcommand_required = true)]
 pub struct App {
     #[clap(subcommand)]
     cmd: SubCmd,

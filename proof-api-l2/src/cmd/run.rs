@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use everscale_types::models::BlockId;
 use futures_util::future::BoxFuture;
+use proof_api_l2::api::ApiConfig;
+use proof_api_l2::storage::{ProofStorage, ProofStorageConfig};
 use serde::{Deserialize, Serialize};
 use tycho_block_util::archive::ArchiveData;
 use tycho_block_util::block::BlockStuff;
@@ -11,8 +13,7 @@ use tycho_core::block_strider::{
 };
 use tycho_storage::{BlockConnection, BlockHandle, NewBlockMeta, Storage};
 use tycho_util::cli::signal;
-
-use crate::storage::{ProofStorage, ProofStorageConfig};
+use tycho_util::futures::JoinTask;
 
 #[derive(Parser)]
 pub struct Cmd {
@@ -80,15 +81,24 @@ impl Cmd {
     async fn run_impl(self, node_config: NodeConfig) -> Result<()> {
         let import_zerostate = self.base.import_zerostate.clone();
 
+        // Build node.
         let mut node = self.base.create(node_config.clone()).await?;
         tracing::info!("created tycho node");
 
+        // Open proofs storage.
         let proofs =
             ProofStorage::new(node.storage().root(), node_config.user_config.proof_storage)
                 .await
                 .context("failed to create proof storage")?;
         tracing::info!("created proofs storage");
 
+        // Bind API.
+        let api = proof_api_l2::api::Api::bind(node_config.user_config.api, proofs.clone())
+            .await
+            .context("failed to bind API service")?;
+        tracing::info!("created api");
+
+        // Prepare block providers.
         let archive_block_provider = ArchiveBlockProvider::new(
             node.blockchain_rpc_client().clone(),
             node.storage().clone(),
@@ -104,9 +114,14 @@ impl Cmd {
         )
         .with_fallback(archive_block_provider.clone());
 
+        // Sync node.
         node.init(ColdBootType::LatestPersistent, import_zerostate)
             .await?;
 
+        // Start API
+        let api_fut = JoinTask::new(api.serve());
+
+        // Start the node.
         node.run(
             archive_block_provider.chain((blockchain_block_provider, storage_block_provider)),
             LightSubscriber {
@@ -116,7 +131,8 @@ impl Cmd {
         )
         .await?;
 
-        futures_util::future::pending().await
+        // Serve API for the reset of the lifetime
+        api_fut.await
     }
 }
 
@@ -265,5 +281,6 @@ type NodeConfig = tycho_light_node::NodeConfig<NodeConfigExtra>;
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct NodeConfigExtra {
+    pub api: ApiConfig,
     pub proof_storage: ProofStorageConfig,
 }

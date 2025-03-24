@@ -105,7 +105,7 @@ where
         .prune_big_cells(true)
         .build_raw_ext(Cell::empty_context())?;
 
-    if pruned_block.hash(0) != block_root.repr_hash() {
+    if pruned_block.hash(0) != block_root.hash(0) {
         return Err(Error::InvalidData);
     }
 
@@ -148,7 +148,7 @@ pub fn make_pivot_block_proof(is_masterchain: bool, block_root: Cell) -> Result<
         .prune_big_cells(true)
         .build_raw_ext(Cell::empty_context())?;
 
-    if pruned_block.hash(0) != block_root.repr_hash() {
+    if pruned_block.hash(0) != block_root.hash(0) {
         return Err(Error::InvalidData);
     }
 
@@ -180,18 +180,19 @@ pub fn make_mc_proof(block_root: Cell, shard: ShardIdent) -> Result<McProofForSh
         .get_workchain_shards(shard.workchain())?
         .ok_or(Error::CellUnderflow)?;
 
-    let descr_root = find_shard_descr(shard_hashes.root(), shard.prefix())?;
+    let mut descr_root = find_shard_descr(shard_hashes.root(), shard.prefix())?;
     // Accessing data is required to mark the cell as visited.
-    let mut cs = descr_root.as_slice()?;
-    cs.skip_first(4, 0)?;
-    let latest_shard_seqno = cs.load_u32()?;
+    let latest_shard_seqno = match descr_root.load_small_uint(4)? {
+        0xa | 0xb => descr_root.load_u32()?,
+        _ => return Err(Error::InvalidTag),
+    };
 
     // Build block proof.
     let pruned_block = MerkleProof::create(block_root.as_ref(), usage_tree)
         .prune_big_cells(true)
         .build_raw_ext(Cell::empty_context())?;
 
-    if pruned_block.hash(0) != block_root.repr_hash() {
+    if pruned_block.hash(0) != block_root.hash(0) {
         return Err(Error::InvalidData);
     }
 
@@ -248,14 +249,14 @@ pub fn make_tx_proof(
         .prune_big_cells(true)
         .build_raw_ext(Cell::empty_context())?;
 
-    if pruned_block.hash(0) != block_root.repr_hash() {
+    if pruned_block.hash(0) != block_root.hash(0) {
         return Err(Error::InvalidData);
     }
 
     Ok(Some(pruned_block))
 }
 
-fn find_shard_descr(mut root: &'_ DynCell, mut prefix: u64) -> Result<&'_ DynCell, Error> {
+fn find_shard_descr(mut root: &'_ DynCell, mut prefix: u64) -> Result<CellSlice<'_>, Error> {
     const HIGH_BIT: u64 = 1u64 << 63;
 
     debug_assert_ne!(prefix, 0);
@@ -274,7 +275,12 @@ fn find_shard_descr(mut root: &'_ DynCell, mut prefix: u64) -> Result<&'_ DynCel
     }
 
     // Root is now a `bt_leaf$0`.
-    Ok(root)
+    let mut cs = root.as_slice()?;
+    if cs.load_bit()? {
+        return Err(Error::InvalidTag);
+    }
+
+    Ok(cs)
 }
 
 fn touch_block_info(info: &BlockInfo) {

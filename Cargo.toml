@@ -12,8 +12,10 @@ members = ["sync-service", "proof-api-l2", "proof-api-ton"]
 
 [workspace.dependencies]
 ahash = "0.8.11"
+aide = { version = "0.13.4", features = ["axum", "scalar"] }
 anyhow = "1.0"
 arc-swap = "1.7.1"
+axum = "0.7"
 bytesize = "2.0.1"
 clap = { version = "4.5.3", features = ["derive"] }
 everscale-crypto = "0.3"
@@ -24,10 +26,14 @@ humantime = "2.2"
 rand = "0.8"
 rayon = "1.10"
 rlimit = "0.10.1"
+schemars = "0.8"
 scopeguard = "1.2"
 serde = "1.0"
 serde_json = "1.0.114"
+simd-json = "0.15.0"
 tokio = { version = "1", default-features = false }
+tower = "0.5"
+tower-http = "0.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 weedb = "0.4.1"
