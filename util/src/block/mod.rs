@@ -1,13 +1,127 @@
-use ahash::HashMapExt;
-use anyhow::Result;
+use ahash::HashMap;
+use everscale_types::cell::Lazy;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{
-    BlockExtra, BlockIdShort, BlockInfo, BlockSignature, CurrencyCollection, ShardHashes,
-    ShardIdent, ValidatorSet,
+    BlockId, BlockIdShort, BlockSignature, CurrencyCollection, ShardIdent, ValidatorBaseInfo,
+    ValidatorSet,
 };
 use everscale_types::prelude::*;
-use tycho_util::FastHashMap;
+
+pub use self::ton::TonModels;
+pub use self::tycho::TychoModels;
+
+pub mod ton;
+pub mod tycho;
+
+// === Traits ===
+
+pub trait BlockchainModels {
+    type Block: BlockchainBlock;
+    type BlockSignatures: BlockchainBlockSignatures;
+}
+
+pub trait BlockchainBlock: for<'a> Load<'a> {
+    type Info: BlockchainBlockInfo;
+    type Extra: BlockchainBlockExtra;
+
+    fn load_info(&self) -> Result<Self::Info, Error>;
+    fn load_info_raw(&self) -> Result<Cell, Error>;
+
+    fn load_extra(&self) -> Result<Self::Extra, Error>;
+}
+
+pub trait BlockchainBlockInfo: for<'a> Load<'a> {
+    fn end_lt(&self) -> u64;
+    fn prev_ref(&self) -> &Cell;
+}
+
+pub trait BlockchainBlockExtra: for<'a> Load<'a> {
+    type McExtra: BlockchainBlockMcExtra;
+
+    fn load_account_blocks(&self) -> Result<AccountBlocksShort, Error>;
+
+    fn has_custom(&self) -> bool;
+    fn load_custom(&self) -> Result<Option<Self::McExtra>, Error>;
+}
+
+pub trait BlockchainBlockMcExtra: for<'a> Load<'a> {
+    fn load_top_shard_block_ids(&self) -> Result<Vec<BlockIdShort>, Error>;
+    fn find_shard_seqno(&self, shard_ident: ShardIdent) -> Result<u32, Error>;
+    fn visit_all_shard_hashes(&self) -> Result<(), Error>;
+}
+
+pub trait BlockchainBlockSignatures: for<'a> Load<'a> {
+    fn validator_info(&self) -> ValidatorBaseInfo;
+    fn signature_count(&self) -> u32;
+    fn total_weight(&self) -> u64;
+    fn signatures(&self) -> Dict<u16, BlockSignature>;
+}
+
+pub struct BaseBlockProof<S> {
+    pub proof_for: BlockId,
+    pub root: Cell,
+    pub signatures: Option<Lazy<S>>,
+}
+
+impl<S> BaseBlockProof<S> {
+    const TAG: u8 = 0xc3;
+
+    pub fn load_signatures<'a>(&'a self) -> Result<Option<S>, Error>
+    where
+        S: Load<'a>,
+    {
+        match &self.signatures {
+            Some(s) => s.load().map(Some),
+            None => Ok(None),
+        }
+    }
+}
+
+impl<'a, S> Load<'a> for BaseBlockProof<S> {
+    fn load_from(slice: &mut CellSlice<'a>) -> Result<Self, Error> {
+        match slice.load_u8() {
+            Ok(Self::TAG) => {}
+            Ok(_) => return Err(Error::InvalidTag),
+            Err(e) => return Err(e),
+        }
+
+        Ok(Self {
+            proof_for: BlockId::load_from(slice)?,
+            root: slice.load_reference_cloned()?,
+            signatures: if slice.load_bit()? {
+                let cell = slice.load_reference_cloned()?;
+                Lazy::from_raw(cell).map(Some)?
+            } else {
+                None
+            },
+        })
+    }
+}
+
+pub struct AccountBlockShort {
+    pub account: HashBytes,
+    pub transactions: AugDict<u64, CurrencyCollection, Cell>,
+}
+
+impl<'a> Load<'a> for AccountBlockShort {
+    fn load_from(slice: &mut CellSlice<'a>) -> Result<Self, Error> {
+        match slice.load_small_uint(4) {
+            Ok(5) => {}
+            Ok(_) => return Err(Error::InvalidTag),
+            Err(e) => return Err(e),
+        }
+
+        Ok(Self {
+            account: slice.load_u256()?,
+            transactions: AugDict::load_from_root_ext(slice, Cell::empty_context())?,
+        })
+    }
+}
+
+pub type AccountBlocksShort = AugDict<HashBytes, CurrencyCollection, AccountBlockShort>;
+
+// === Proff stuff ===
 
 pub struct McBlockBoundInfo {
     pub end_lt: u64,
@@ -17,24 +131,20 @@ pub struct McBlockBoundInfo {
 /// Parses all shard descriptions from masterchain block.
 ///
 /// Input: pivot mc block.
-pub fn parse_latest_shard_blocks(block_root: Cell) -> Result<McBlockBoundInfo, Error> {
-    let block = block_root.parse::<BlockShort>()?;
-    let info = block.info.parse::<BlockInfo>()?;
+pub fn parse_latest_shard_blocks<M>(block_root: Cell) -> Result<McBlockBoundInfo, Error>
+where
+    M: BlockchainModels,
+{
+    let block = block_root.parse::<M::Block>()?;
+    let info = block.load_info()?;
 
-    let extra = block.extra.parse::<BlockExtraShort>()?;
-    let custom = extra
-        .custom
-        .ok_or(Error::CellUnderflow)?
-        .parse::<McBlockExtraShort>()?;
+    let extra = block.load_extra()?;
+    let custom = extra.load_custom()?.ok_or(Error::CellUnderflow)?;
 
-    let mut shard_ids = Vec::new();
-    for entry in custom.shard_hashes.latest_blocks() {
-        let block_id = entry?;
-        shard_ids.push(block_id.as_short_id());
-    }
+    let shard_ids = custom.load_top_shard_block_ids()?;
 
     Ok(McBlockBoundInfo {
-        end_lt: info.end_lt,
+        end_lt: info.end_lt(),
         shard_ids,
     })
 }
@@ -53,12 +163,11 @@ pub fn prepare_signatures(
         }
     }
 
-    let mut block_signatures = FastHashMap::new();
+    let mut block_signatures = HashMap::default();
     for entry in signatures.values() {
         let entry = entry?;
         let res = block_signatures.insert(entry.node_id_short, entry.signature);
         if res.is_some() {
-            tracing::error!("duplicate signatures");
             return Err(Error::InvalidData);
         }
     }
@@ -144,25 +253,26 @@ pub fn make_proof_chain(
 /// Leaves only transaction hashes in block.
 ///
 /// Input: full block.
-pub fn make_pruned_block<F>(block_root: Cell, mut on_tx: F) -> Result<Cell, Error>
+pub fn make_pruned_block<M, F>(block_root: Cell, mut on_tx: F) -> Result<Cell, Error>
 where
+    M: BlockchainModels,
     for<'a> F: FnMut(&'a HashBytes, u64) -> Result<(), Error>,
 {
     let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
 
     let tracked_root = usage_tree.track(&block_root);
-    let raw_block = tracked_root.parse::<BlockShort>()?;
+    let raw_block = tracked_root.parse::<M::Block>()?;
 
     // Include block extra for account blocks only.
-    let extra = raw_block.extra.parse::<BlockExtra>()?;
+    let extra = raw_block.load_extra()?;
 
-    if extra.custom.is_some() {
+    if extra.has_custom() {
         // Include full block info for masterchain blocks.
-        let info = raw_block.info.parse::<BlockInfo>()?;
-        touch_block_info(&info);
+        let info = raw_block.load_info_raw()?;
+        info.touch_recursive();
     }
 
-    let account_blocks = extra.account_blocks.load()?;
+    let account_blocks = extra.load_account_blocks()?;
 
     // Visit only items with transaction roots.
     for item in account_blocks.values() {
@@ -197,32 +307,28 @@ where
 /// Creates a small proof which can be used to build proof chains.
 ///
 /// Input: full block.
-pub fn make_pivot_block_proof(is_masterchain: bool, block_root: Cell) -> Result<Cell, Error> {
+pub fn make_pivot_block_proof<M>(is_masterchain: bool, block_root: Cell) -> Result<Cell, Error>
+where
+    M: BlockchainModels,
+{
     let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
 
     let tracked_root = usage_tree.track(&block_root);
-    let raw_block = tracked_root.parse::<BlockShort>()?;
-
-    // Include block info.
-    let info = raw_block.info.parse::<BlockInfo>()?;
+    let raw_block = tracked_root.parse::<M::Block>()?;
 
     if is_masterchain {
         // Include full block info for masterchain blocks.
-        touch_block_info(&info);
+        raw_block.load_info_raw()?.touch_recursive();
 
         // Include shard descriptions for all shards.
-        let extra = raw_block.extra.parse::<BlockExtraShort>()?;
-        let custom = extra
-            .custom
-            .ok_or(Error::CellUnderflow)?
-            .parse::<McBlockExtraShort>()?;
+        let extra = raw_block.load_extra()?;
+        let custom = extra.load_custom()?.ok_or(Error::CellUnderflow)?;
 
-        for item in custom.shard_hashes.raw_iter() {
-            item?;
-        }
+        custom.visit_all_shard_hashes()?;
     } else {
         // Include only prev block ref for shard blocks.
-        info.prev_ref.data();
+        let info = raw_block.load_info()?;
+        info.prev_ref().data();
     }
 
     // Build block proof.
@@ -237,37 +343,32 @@ pub fn make_pivot_block_proof(is_masterchain: bool, block_root: Cell) -> Result<
     Ok(pruned_block)
 }
 
+pub struct McProofForShard {
+    pub root: Cell,
+    pub latest_shard_seqno: u32,
+}
+
 /// Creates an mc block proof for the proof chain.
 ///
 /// Input: pivot block.
-pub fn make_mc_proof(block_root: Cell, shard: ShardIdent) -> Result<McProofForShard, Error> {
+pub fn make_mc_proof<M>(block_root: Cell, shard: ShardIdent) -> Result<McProofForShard, Error>
+where
+    M: BlockchainModels,
+{
     let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
 
     let tracked_root = usage_tree.track(&block_root);
-    let raw_block = tracked_root.parse::<BlockShort>()?;
+    let raw_block = tracked_root.parse::<M::Block>()?;
 
     // Block info is required for masterchain blocks to find the previous key block.
     // Only block info root cell is required (prev_ref is ignored).
-    raw_block.info.parse::<BlockInfo>()?;
+    raw_block.load_info()?;
 
     // Access the required shard description.
-    let extra = raw_block.extra.parse::<BlockExtraShort>()?;
-    let custom = extra
-        .custom
-        .ok_or(Error::CellUnderflow)?
-        .parse::<McBlockExtraShort>()?;
+    let extra = raw_block.load_extra()?;
+    let custom = extra.load_custom()?.ok_or(Error::CellUnderflow)?;
 
-    let shard_hashes = custom
-        .shard_hashes
-        .get_workchain_shards(shard.workchain())?
-        .ok_or(Error::CellUnderflow)?;
-
-    let mut descr_root = find_shard_descr(shard_hashes.root(), shard.prefix())?;
-    // Accessing data is required to mark the cell as visited.
-    let latest_shard_seqno = match descr_root.load_small_uint(4)? {
-        0xa | 0xb => descr_root.load_u32()?,
-        _ => return Err(Error::InvalidTag),
-    };
+    let latest_shard_seqno = custom.find_shard_seqno(shard)?;
 
     // Build block proof.
     let pruned_block = MerkleProof::create(block_root.as_ref(), usage_tree)
@@ -284,35 +385,33 @@ pub fn make_mc_proof(block_root: Cell, shard: ShardIdent) -> Result<McProofForSh
     })
 }
 
-pub struct McProofForShard {
-    pub root: Cell,
-    pub latest_shard_seqno: u32,
-}
-
 /// Creates a block with a single branch of the specified transaction.
 ///
 /// Input: pruned block from [`make_pruned_block`].
-pub fn make_tx_proof(
+pub fn make_tx_proof<M>(
     block_root: Cell,
     account: &HashBytes,
     lt: u64,
     include_info: bool,
-) -> Result<Option<Cell>, Error> {
+) -> Result<Option<Cell>, Error>
+where
+    M: BlockchainModels,
+{
     let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
 
     let tracked_root = usage_tree.track(&block_root);
-    let raw_block = tracked_root.parse::<BlockShort>()?;
+    let raw_block = tracked_root.parse::<M::Block>()?;
 
     if include_info {
-        let info = raw_block.info.parse::<BlockInfo>()?;
+        let info = raw_block.load_info()?;
         // Touch `prev_ref` data to include it into the cell.
-        info.prev_ref.data();
+        info.prev_ref().data();
     }
 
     // Make a single branch with transaction.
-    let extra = raw_block.extra.parse::<BlockExtraShort>()?;
+    let extra = raw_block.load_extra()?;
 
-    let account_blocks = extra.account_blocks.parse::<AccountBlocksShort>()?;
+    let account_blocks = extra.load_account_blocks()?;
     let Some((_, account_block)) = account_blocks.get(account).ok().flatten() else {
         return Ok(None);
     };
@@ -365,71 +464,11 @@ fn find_shard_descr(mut root: &'_ DynCell, mut prefix: u64) -> Result<CellSlice<
     Ok(cs)
 }
 
-fn touch_block_info(info: &BlockInfo) {
-    info.prev_ref.data();
-    if let Some(master_ref) = &info.master_ref {
-        master_ref.inner().data();
-    }
-    if let Some(prev_vert_ref) = &info.prev_vert_ref {
-        prev_vert_ref.inner().data();
-    }
-}
-
-#[derive(Load)]
-#[tlb(tag = "#11ef55bb")]
-struct BlockShort {
-    _global_id: i32,
-    info: Cell,
-    _value_flow: Cell,
-    _state_update: Cell,
-    extra: Cell,
-}
-
-#[derive(Load)]
-#[tlb(tag = "#4a33f6fc")]
-struct BlockExtraShort {
-    _in_msg_description: Cell,
-    _out_msg_description: Cell,
-    account_blocks: Cell,
-    _rand_seed: HashBytes,
-    _created_by: HashBytes,
-    custom: Option<Cell>,
-}
-
-#[derive(Load)]
-#[tlb(tag = "#cca5")]
-struct McBlockExtraShort {
-    _key_block: bool,
-    shard_hashes: ShardHashes,
-}
-
-struct AccountBlockShort {
-    transactions: AugDict<u64, CurrencyCollection, Cell>,
-}
-
-impl<'a> Load<'a> for AccountBlockShort {
-    fn load_from(slice: &mut CellSlice<'a>) -> Result<Self, Error> {
-        match slice.load_small_uint(4) {
-            Ok(5) => {}
-            Ok(_) => return Err(Error::InvalidTag),
-            Err(e) => return Err(e),
-        }
-
-        slice.skip_first(256, 0)?;
-
-        Ok(Self {
-            transactions: AugDict::load_from_root_ext(slice, Cell::empty_context())?,
-        })
-    }
-}
-
-type AccountBlocksShort = AugDict<HashBytes, CurrencyCollection, AccountBlockShort>;
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use anyhow::Context;
+    use anyhow::{Context, Result};
     use everscale_types::boc::Boc;
 
     use super::*;
@@ -447,17 +486,18 @@ mod tests {
 
         // Pivot proof
         println!("building pivot proof");
-        let pivot_proof = make_pivot_block_proof(false, block_root.clone())?;
+        let pivot_proof = make_pivot_block_proof::<TychoModels>(false, block_root.clone())?;
         println!("SHARD PROOF: {}", Boc::encode_base64(pivot_proof));
 
         // Remove everything except transaction hashes.
         println!("building pruned block");
-        let pruned_block = make_pruned_block(block_root, |_, _| Ok(()))?;
+        let pruned_block = make_pruned_block::<TychoModels, _>(block_root, |_, _| Ok(()))?;
 
         // Build a pruned block which contains a single branch to transaction.
         println!("building tx proof");
-        let tx_proof = make_tx_proof(Cell::virtualize(pruned_block), &account, lt, false)?
-            .context("tx not found in block")?;
+        let tx_proof =
+            make_tx_proof::<TychoModels>(Cell::virtualize(pruned_block), &account, lt, false)?
+                .context("tx not found in block")?;
 
         // Done.
         println!("serializing tx proof");

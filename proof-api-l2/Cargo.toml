@@ -50,6 +50,8 @@ tycho-storage = { workspace = true }
 tycho-util = { workspace = true, features = ["cli"] }
 tycho-light-node = { workspace = true }
 
+proof-api-util = { workspace = true }
+
 [build-dependencies]
 anyhow = { workspace = true }
 

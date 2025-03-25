@@ -1,0 +1,23 @@
+[package]
+name = "proof-api-util"
+description = "Shared stuff for Tycho L2."
+include = ["src/**/*.rs", "src/**/*.tl", "./LICENSE-*", "./README.md"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+anyhow = { workspace = true }
+everscale-crypto = { workspace = true, features = ["tl-proto"] }
+everscale-types = { workspace = true, features = ["models"] }
+tl-proto = { workspace = true }
+
+[dev-dependencies]
+everscale-types = { workspace = true, features = ["models", "base64"] }
+
+[lints]
+workspace = true

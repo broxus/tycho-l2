@@ -279,12 +279,6 @@ dependencies = [
 
 [[package]]
 name = "base64"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
-
-[[package]]
-name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -345,18 +339,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
-]
-
-[[package]]
-name = "broxus-util"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bed246b9cbc85608c996cc7077b4c70ae7a1445436e76087c507751e621ed7d"
-dependencies = [
- "base64 0.13.1",
- "hex",
- "serde",
- "url",
 ]
 
 [[package]]
@@ -798,10 +780,10 @@ dependencies = [
 [[package]]
 name = "everscale-types"
 version = "0.1.2"
-source = "git+https://github.com/broxus/everscale-types.git?rev=cba01d49c969945fdd64d8ce052e73f06aea2e8c#cba01d49c969945fdd64d8ce052e73f06aea2e8c"
+source = "git+https://github.com/broxus/everscale-types.git?rev=88dd2242c7679b752d695f8c5e8f7352c939a98c#88dd2242c7679b752d695f8c5e8f7352c939a98c"
 dependencies = [
  "ahash",
- "base64 0.22.1",
+ "base64",
  "bitflags",
  "blake3",
  "crc32c",
@@ -822,7 +804,7 @@ dependencies = [
 [[package]]
 name = "everscale-types-proc"
 version = "0.1.5"
-source = "git+https://github.com/broxus/everscale-types.git?rev=cba01d49c969945fdd64d8ce052e73f06aea2e8c#cba01d49c969945fdd64d8ce052e73f06aea2e8c"
+source = "git+https://github.com/broxus/everscale-types.git?rev=88dd2242c7679b752d695f8c5e8f7352c939a98c#88dd2242c7679b752d695f8c5e8f7352c939a98c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1644,7 +1626,7 @@ version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4f0c8427b39666bf970460908b213ec09b3b350f20c0c2eabcbba51704a08e6"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "http-body-util",
  "hyper",
  "hyper-rustls",
@@ -1979,6 +1961,7 @@ dependencies = [
  "fdlimit",
  "futures-util",
  "humantime",
+ "proof-api-util",
  "rand 0.8.5",
  "rayon",
  "rlimit",
@@ -2005,6 +1988,17 @@ dependencies = [
 [[package]]
 name = "proof-api-ton"
 version = "0.1.0"
+
+[[package]]
+name = "proof-api-util"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "everscale-crypto",
+ "everscale-types",
+ "tl-proto",
+]
 
 [[package]]
 name = "prost"
@@ -2303,7 +2297,7 @@ version = "0.12.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d19c46a6fdd48bc4dab94b6103fccc55d34c67cc0ad04653aad4ea2a07cd7bbb"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "futures-core",
  "futures-util",
@@ -2817,7 +2811,7 @@ name = "sync-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64",
  "everscale-types",
  "reqwest",
  "serde",
@@ -3020,9 +3014,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tl-proto"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4e0d6f1ad91e0776280a494c5c5ed10922988b6c4475a11dd92c73c6838b381"
+checksum = "fa0cfc23477a4135cb40334544c149647f26239c83034ab01049f384528af4c5"
 dependencies = [
  "bytes",
  "digest",
@@ -3034,9 +3028,9 @@ dependencies = [
 
 [[package]]
 name = "tl-proto-proc"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c1a51b272c6c86781e53fb392cc1e09aa857158ff8ef074ae13e926e1f5dd80"
+checksum = "031cadd2049e03a287e8ac7663b5968cda07d7d10dd5b1cd734ebe234d135bb8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3117,14 +3111,14 @@ dependencies = [
  "aes",
  "ahash",
  "anyhow",
- "base64 0.22.1",
- "broxus-util",
+ "base64",
  "ctr",
  "dashmap",
  "everscale-crypto",
  "everscale-types",
  "generic-array",
  "hex",
+ "proof-api-util",
  "rand 0.8.5",
  "serde",
  "sha2",
@@ -3134,6 +3128,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "tycho-util",
 ]
 
 [[package]]
@@ -3374,7 +3369,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "arc-swap",
- "base64 0.22.1",
+ "base64",
  "bytes",
  "bytesize 1.3.2",
  "castaway",
@@ -3413,7 +3408,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "axum",
- "base64 0.22.1",
+ "base64",
  "bytes",
  "everscale-types",
  "futures-util",
@@ -3482,7 +3477,7 @@ source = "git+https://github.com/broxus/tycho.git?rev=05717cdb7fd19bcc33239bdb4a
 dependencies = [
  "ahash",
  "anyhow",
- "base64 0.22.1",
+ "base64",
  "bytes",
  "castaway",
  "dashmap",
@@ -3548,7 +3543,6 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
- "serde",
 ]
 
 [[package]]

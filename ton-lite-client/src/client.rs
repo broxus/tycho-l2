@@ -1,16 +1,12 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use everscale_crypto::ed25519;
-use everscale_types::cell::HashBytes;
-use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockId, BlockIdShort, BlockSignature, Signature};
+use everscale_types::models::{BlockId, BlockIdShort};
+use everscale_types::prelude::*;
 use tl_proto::{TlRead, TlWrite};
 
 use crate::config::LiteClientConfig;
-use crate::models::block::{BlockProof, BlockShort, BlockStuff};
 use crate::proto;
-use crate::proto::BlockLink;
 use crate::tcp_adnl::{TcpAdnl, TcpAdnlConfig, TcpAdnlError};
 
 #[derive(Clone)]
@@ -21,13 +17,8 @@ pub struct LiteClient {
 
 impl LiteClient {
     pub async fn new(config: &LiteClientConfig) -> Result<Self> {
-        // Generate client keys
-        let rng = &mut rand::thread_rng();
-        let client_secret = ed25519::SecretKey::generate(rng);
-
         let tcp_adnl = TcpAdnl::connect(TcpAdnlConfig {
-            client_secret,
-            server_address: config.server_address.into(),
+            server_address: config.server_address,
             server_pubkey: config.server_pubkey,
             connection_timeout: config.connection_timeout,
         })
@@ -43,20 +34,22 @@ impl LiteClient {
     }
 
     pub async fn get_version(&self) -> Result<u32> {
-        let version = self.query::<_, proto::Version>(proto::GetVersion).await?;
+        let version = self
+            .query::<_, proto::Version>(proto::rpc::GetVersion)
+            .await?;
         Ok(version.version)
     }
 
     pub async fn get_last_mc_block_id(&self) -> Result<BlockId> {
         let info = self
-            .query::<_, proto::MasterchainInfo>(proto::GetMasterchainInfo)
+            .query::<_, proto::MasterchainInfo>(proto::rpc::GetMasterchainInfo)
             .await?;
-        Ok(info.last.into())
+        Ok(info.last)
     }
 
     pub async fn send_message<T: AsRef<[u8]>>(&self, message: T) -> Result<u32> {
         let status = self
-            .query::<_, proto::SendMsgStatus>(proto::SendMessage {
+            .query::<_, proto::SendMsgStatus>(proto::rpc::SendMessage {
                 body: message.as_ref(),
             })
             .await?;
@@ -64,72 +57,43 @@ impl LiteClient {
         Ok(status.status)
     }
 
-    pub async fn get_block(&self, id: BlockId) -> Result<BlockStuff> {
+    pub async fn get_block(&self, id: &BlockId) -> Result<Cell> {
         let block = self
-            .query::<_, proto::BlockData>(proto::GetBlock { id: id.into() })
+            .query::<_, proto::BlockData>(proto::rpc::GetBlock { id: id.clone() })
             .await?;
-        BlockStuff::new(&block.data, block.id.into())
+
+        let cell = Boc::decode(block.data)?;
+        anyhow::ensure!(*cell.repr_hash() == id.root_hash, "root hash mismatch");
+        Ok(cell)
     }
 
     pub async fn lookup_block(&self, id: BlockIdShort) -> Result<BlockId> {
         let block_header = self
-            .query::<_, proto::BlockHeader>(proto::LookupBlock {
+            .query::<_, proto::BlockHeader>(proto::rpc::LookupBlock {
                 mode: (),
-                id: id.into(),
+                id,
                 seqno: Some(()),
                 lt: None,
                 utime: None,
             })
             .await?;
 
-        Ok(block_header.id.into())
+        Ok(block_header.id)
     }
 
-    pub async fn get_block_proof(&self, from: BlockId, to: Option<BlockId>) -> Result<BlockProof> {
+    pub async fn get_block_proof(&self, block_id: &BlockId) -> Result<proto::BlockLinkForward> {
         let block_proof = self
-            .query::<_, proto::PartialBlockProof>(proto::GetBlockProof {
+            .query::<_, proto::PartialBlockProof>(proto::rpc::GetBlockProof {
                 mode: (),
-                known_block: from.into(),
-                target_block: to.map(Into::into),
+                known_block: block_id.clone(),
+                target_block: None,
             })
             .await?;
 
         for block_link in block_proof.steps {
             match block_link {
-                BlockLink::BlockLinkBack { .. } => {}
-                BlockLink::BlockLinkForward {
-                    config_proof,
-                    signatures,
-                    ..
-                } => {
-                    let proof = everscale_types::boc::Boc::decode(&config_proof)?
-                        .parse_exotic::<MerkleProof>()?;
-
-                    let block = proof.cell.virtualize().parse::<BlockShort>()?;
-                    let extra = block.load_extra()?;
-
-                    let config = extra.load_config()?;
-
-                    let signatures = signatures
-                        .signatures
-                        .into_iter()
-                        .map(|x| -> Result<BlockSignature> {
-                            Ok(BlockSignature {
-                                node_id_short: HashBytes::from(x.node_id_short),
-                                signature: Signature(
-                                    x.signature
-                                        .try_into()
-                                        .map_err(|_e| LiteClientError::InvalidBlockProof)?,
-                                ),
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-
-                    return Ok(BlockProof {
-                        signatures,
-                        validator_set: config.get_current_validator_set()?,
-                    });
-                }
+                proto::BlockLink::BlockLinkBack { .. } => break,
+                proto::BlockLink::BlockLinkForward(proof) => return Ok(proof),
             }
         }
 

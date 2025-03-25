@@ -24,4 +24,4 @@ logger.json
 /db/
 /.temp/
 
-/proof-api-l2/res/*.boc
+/util/res/*.boc

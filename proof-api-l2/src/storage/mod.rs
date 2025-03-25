@@ -10,6 +10,7 @@ use everscale_types::models::{
     BlockId, BlockIdShort, BlockSignature, ShardIdent, StdAddr, ValidatorSet,
 };
 use everscale_types::prelude::*;
+use proof_api_util::block::{self, TychoModels};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tycho_block_util::block::BlockStuff;
@@ -23,7 +24,6 @@ use weedb::{
     WeeDbRaw,
 };
 
-pub mod block;
 pub mod tables;
 
 const PROOFS_SUBDIR: &str = "proofs";
@@ -270,8 +270,9 @@ impl ProofStorage {
 
             check(&cancelled)?;
 
-            let tx_proof = block::make_tx_proof(block_with_tx, &account, lt, is_masterchain)?
-                .context("tx not found in block")?;
+            let tx_proof =
+                block::make_tx_proof::<TychoModels>(block_with_tx, &account, lt, is_masterchain)?
+                    .context("tx not found in block")?;
 
             check(&cancelled)?;
 
@@ -308,7 +309,7 @@ impl ProofStorage {
                     .context("ref mc block not found")
                     .and_then(decode_block)?;
 
-                let mc = block::make_mc_proof(mc_block, shard)?;
+                let mc = block::make_mc_proof::<TychoModels>(mc_block, shard)?;
                 file_hash = mc_block_hash;
                 mc_proof = mc.root;
 
@@ -415,7 +416,7 @@ impl ProofStorage {
                 let block = block.root_cell().clone();
                 move || {
                     let started_at = Instant::now();
-                    let res = block::make_pivot_block_proof(is_masterchain, block)
+                    let res = block::make_pivot_block_proof::<TychoModels>(is_masterchain, block)
                         .map(|cell| encode_block(&block_id.file_hash, cell));
                     tracing::debug!(
                         elapsed = %humantime::format_duration(started_at.elapsed()),
@@ -468,16 +469,19 @@ impl ProofStorage {
             // Build pruned block and fill batch with new transactions.
             let started_at = Instant::now();
             let mut debounced = cancelled.debounce(100);
-            let pruned = block::make_pruned_block(block.root_cell().clone(), |account, lt| {
-                if debounced.check() {
-                    return Err(Error::Cancelled);
-                }
+            let pruned = block::make_pruned_block::<TychoModels, _>(
+                block.root_cell().clone(),
+                |account, lt| {
+                    if debounced.check() {
+                        return Err(Error::Cancelled);
+                    }
 
-                tx_key[0..8].copy_from_slice(&lt.to_be_bytes());
-                tx_key[9..41].copy_from_slice(account.as_slice());
-                batch.put_cf(transactions_cf, tx_key.as_slice(), tx_value.as_slice());
-                Ok(())
-            })
+                    tx_key[0..8].copy_from_slice(&lt.to_be_bytes());
+                    tx_key[9..41].copy_from_slice(account.as_slice());
+                    batch.put_cf(transactions_cf, tx_key.as_slice(), tx_value.as_slice());
+                    Ok(())
+                },
+            )
             .map(|cell| encode_block(&block_id.file_hash, cell))?;
             tracing::debug!(
                 elapsed = %humantime::format_duration(started_at.elapsed()),
@@ -610,7 +614,7 @@ fn find_outdated_bound(db: &ProofDb, remove_until: u32) -> Result<Option<Outdate
         None => return Ok(None),
     };
 
-    let mut info = block::parse_latest_shard_blocks(block)?;
+    let mut info = block::parse_latest_shard_blocks::<TychoModels>(block)?;
     info.shard_ids.push(BlockIdShort {
         shard: ShardIdent::MASTERCHAIN,
         seqno: until_mc_seqno,

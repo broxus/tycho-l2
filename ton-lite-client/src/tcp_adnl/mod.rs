@@ -5,24 +5,23 @@ use std::time::Duration;
 
 use ctr::cipher::{KeyIvInit, StreamCipher};
 use everscale_crypto::ed25519;
+use everscale_types::cell::HashBytes;
 use rand::{Rng, RngCore};
 use sha2::Digest;
-use tl_proto::{TlRead, TlWrite};
+use tl_proto::{IntermediateBytes, TlRead, TlWrite};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::proto;
-
 use self::queries_cache::QueriesCache;
+use crate::proto;
 
 mod queries_cache;
 
 pub struct TcpAdnlConfig {
     pub server_address: SocketAddr,
-    pub server_pubkey: ed25519::PublicKey,
-    pub client_secret: ed25519::SecretKey,
+    pub server_pubkey: HashBytes,
     pub connection_timeout: Duration,
 }
 
@@ -79,11 +78,12 @@ impl TcpAdnl {
             state.cancellation_token.clone(),
         ));
 
-        build_handshake_packet(
-            &config.server_pubkey,
-            &config.client_secret,
-            &mut initial_buffer,
-        );
+        let server_pubkey = ed25519::PublicKey::from_bytes(config.server_pubkey.0)
+            .ok_or(TcpAdnlError::InvalidPubkey)?;
+        let client_secret = rand::thread_rng().gen::<ed25519::SecretKey>();
+
+        build_handshake_packet(&server_pubkey, &client_secret, &mut initial_buffer);
+
         state
             .packets_tx
             .send(Packet::unencrypted(initial_buffer))
@@ -108,20 +108,20 @@ impl TcpAdnl {
             &self
                 .state
                 .query_id
-                .fetch_add(1, Ordering::AcqRel)
+                .fetch_add(1, Ordering::Relaxed)
                 .to_le_bytes(),
         );
 
         let query = proto::LiteQuery {
-            wrapped_request: proto::WrappedQuery {
+            wrapped_request: IntermediateBytes(proto::WrappedQuery {
                 wait_masterchain_seqno: None,
                 query,
-            },
+            }),
         };
 
         let data = tl_proto::serialize(proto::AdnlMessageQuery {
             query_id: &query_id,
-            query,
+            query: IntermediateBytes(query),
         });
 
         let pending_query = self.state.queries_cache.add_query(query_id);
@@ -348,6 +348,8 @@ pub enum TcpAdnlError {
     SocketClosed,
     #[error("invalid answer")]
     InvalidAnswer(#[source] tl_proto::TlError),
+    #[error("invalid pubkey")]
+    InvalidPubkey,
 }
 
 pub type Aes256Ctr = ctr::Ctr64BE<aes::Aes256>;

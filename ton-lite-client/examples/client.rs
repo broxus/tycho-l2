@@ -2,23 +2,15 @@ use std::net::SocketAddrV4;
 use std::str::FromStr;
 
 use anyhow::Result;
-use base64::Engine;
-use everscale_crypto::ed25519;
-use ton_lite_client::client::LiteClient;
-use ton_lite_client::config::LiteClientConfig;
+use everscale_types::cell::HashBytes;
+use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
+use ton_lite_client::{LiteClient, LiteClientConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let server_pubkey = ed25519::PublicKey::from_bytes(
-        base64::engine::general_purpose::STANDARD
-            .decode("n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk=")?
-            .try_into()
-            .unwrap(),
-    )
-    .unwrap();
-
+    let server_pubkey = "n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk=".parse::<HashBytes>()?;
     let server_address = SocketAddrV4::from_str("5.9.10.47:19949")?;
 
     let config = LiteClientConfig::from_addr_and_keys(server_address, server_pubkey);
@@ -31,7 +23,10 @@ async fn main() -> Result<()> {
         tracing::info!(?mc_block_id);
 
         // Get last mc block
-        let mc_block = client.get_block(mc_block_id).await?;
+        let mc_block = client
+            .get_block(&mc_block_id)
+            .await?
+            .parse::<<TonModels as BlockchainModels>::Block>()?;
 
         let prev_key_block_seqno = mc_block.load_info()?.prev_key_block_seqno;
         tracing::info!(prev_key_block_seqno);
@@ -45,7 +40,7 @@ async fn main() -> Result<()> {
         tracing::info!(?key_block_id);
 
         // Block proof
-        let proof = client.get_block_proof(key_block_id, None).await?;
+        let proof = client.get_block_proof(&key_block_id).await?;
         tracing::info!(?proof);
     }
 
