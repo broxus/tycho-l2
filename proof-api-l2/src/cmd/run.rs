@@ -122,50 +122,11 @@ impl Cmd {
             .init(ColdBootType::LatestPersistent, import_zerostate)
             .await?;
 
-        // Sync current vset.
-        let current_vset = if init_block_id.seqno == 0 {
-            let states = node.storage().shard_state_storage();
-
-            // Load zerostate
-            let zerostate = states
-                .load_state(&init_block_id)
-                .await
-                .context("failed to load zerostate")?;
-
-            // Get current validator set from the state.
-            zerostate
-                .config_params()?
-                .get_current_validator_set()
-                .context("failed to get current validator set")
-                .map(Arc::new)?
-        } else {
-            let handles = node.storage().block_handle_storage();
-            let blocks = node.storage().block_storage();
-
-            // Find the latest key block (relative to the `init_block_id`).
-            let key_block_handle = handles
-                .find_prev_key_block(init_block_id.seqno + 1)
-                .context("no key block found")?;
-
-            // Load proof.
-            let block_proof = blocks
-                .load_block_proof(&key_block_handle)
-                .await
-                .context("failed to load init key block proof")?;
-
-            // Get current validator set from the proof.
-            let (block, _) = block_proof.virtualize_block()?;
-            let extra = block.extra.load()?;
-            let custom = extra.load_custom()?.context("invalid key block")?;
-            let config = custom.config.context("key block without config")?;
-
-            config
-                .get_current_validator_set()
-                .context("failed to get current validator set")
-                .map(Arc::new)?
-        };
-
-        proofs.set_current_vset(current_vset);
+        // Init proofs storage.
+        proofs
+            .init(node.storage(), &init_block_id)
+            .await
+            .context("failed to init proofs storage")?;
 
         // Start API
         let api_fut = JoinTask::new(api.serve());

@@ -3,11 +3,41 @@ use anyhow::Result;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{
-    BlockExtra, BlockInfo, BlockSignature, CurrencyCollection, ShardHashes, ShardIdent,
-    ValidatorSet,
+    BlockExtra, BlockIdShort, BlockInfo, BlockSignature, CurrencyCollection, ShardHashes,
+    ShardIdent, ValidatorSet,
 };
 use everscale_types::prelude::*;
 use tycho_util::FastHashMap;
+
+pub struct McBlockBoundInfo {
+    pub end_lt: u64,
+    pub shard_ids: Vec<BlockIdShort>,
+}
+
+/// Parses all shard descriptions from masterchain block.
+///
+/// Input: pivot mc block.
+pub fn parse_latest_shard_blocks(block_root: Cell) -> Result<McBlockBoundInfo, Error> {
+    let block = block_root.parse::<BlockShort>()?;
+    let info = block.info.parse::<BlockInfo>()?;
+
+    let extra = block.extra.parse::<BlockExtraShort>()?;
+    let custom = extra
+        .custom
+        .ok_or(Error::CellUnderflow)?
+        .parse::<McBlockExtraShort>()?;
+
+    let mut shard_ids = Vec::new();
+    for entry in custom.shard_hashes.latest_blocks() {
+        let block_id = entry?;
+        shard_ids.push(block_id.as_short_id());
+    }
+
+    Ok(McBlockBoundInfo {
+        end_lt: info.end_lt,
+        shard_ids,
+    })
+}
 
 /// Prepares a signatures dict with validator indices as keys.
 pub fn prepare_signatures(

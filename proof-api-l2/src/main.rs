@@ -10,6 +10,7 @@ mod cmd {
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+#[allow(clippy::print_stderr)]
 fn main() -> ExitCode {
     if std::env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.

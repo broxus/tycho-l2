@@ -25,7 +25,7 @@ impl ColumnFamilyOptions<Caches> for State {
 }
 
 /// Stores the least possible proof.
-/// - Key: `workchain: i8, shard: u64, seqno: u32`
+/// - Key: `workchain: i8, shard: u64 (BE), seqno: u32 (BE)`
 /// - Value: `file_hash: uint256, ...BOC`
 pub struct PivotBlocks;
 
@@ -46,7 +46,7 @@ impl ColumnFamilyOptions<Caches> for PivotBlocks {
 }
 
 /// Stores pruned blocks with transactions.
-/// - Key: `workchain: i8, shard: u64, seqno: u32`
+/// - Key: `workchain: i8, shard: u64 (BE), seqno: u32 (BE)`
 /// - Value: `file_hash: uint256, ...BOC`
 pub struct PrunedBlocks;
 
@@ -67,8 +67,8 @@ impl ColumnFamilyOptions<Caches> for PrunedBlocks {
 }
 
 /// Stores transactions index.
-/// - Key: `lt: u64, workchain: i8, account: [u8; 32]`
-/// - Value: `workchain: i8, shard: u64, seqno: u32, ref_by_mc_seqno: u32`
+/// - Key: `lt: u64 (BE), workchain: i8, account: [u8; 32]`
+/// - Value: `workchain: i8, shard: u64 (BE), seqno: u32 (BE), ref_by_mc_seqno: u32 (LE)`
 pub struct Transactions;
 
 impl Transactions {
@@ -85,6 +85,27 @@ impl ColumnFamilyOptions<Caches> for Transactions {
         zstd_block_based_table_factory(opts, ctx);
         opts.set_compression_type(DBCompressionType::Zstd);
         with_blob_db(opts, DEFAULT_MIN_BLOB_SIZE, DBCompressionType::Zstd);
+    }
+}
+
+/// Stores info for the start bound of the GC.
+///
+/// - Key: `created_at: u32 (BE)`
+/// - Value: `mc_seqno: u32 (LE)`
+pub struct Timings;
+
+impl Timings {
+    pub const KEY_LEN: usize = 4;
+}
+
+impl ColumnFamily for Timings {
+    const NAME: &'static str = "block_timings";
+}
+
+impl ColumnFamilyOptions<Caches> for Timings {
+    fn options(opts: &mut Options, ctx: &mut Caches) {
+        default_block_based_table_factory(opts, ctx);
+        opts.set_compression_type(DBCompressionType::Zstd);
     }
 }
 

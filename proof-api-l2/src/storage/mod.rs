@@ -1,17 +1,21 @@
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use arc_swap::{ArcSwap, ArcSwapAny, ArcSwapOption};
 use bytesize::ByteSize;
 use everscale_types::error::Error;
-use everscale_types::models::{BlockSignature, ShardIdent, StdAddr, ValidatorSet};
+use everscale_types::models::{
+    BlockId, BlockIdShort, BlockSignature, ShardIdent, StdAddr, ValidatorSet,
+};
 use everscale_types::prelude::*;
 use serde::{Deserialize, Serialize};
 use tycho_block_util::block::BlockStuff;
-use tycho_storage::FileDb;
+use tycho_storage::{FileDb, Storage};
+use tycho_util::serde_helpers;
 use tycho_util::sync::CancellationFlag;
+use tycho_util::time::now_sec;
 use weedb::{
     rocksdb, Caches, MigrationError, OwnedSnapshot, Semver, VersionProvider, WeeDb, WeeDbRaw,
 };
@@ -19,13 +23,19 @@ use weedb::{
 pub mod block;
 pub mod tables;
 
-const PROOFS_SUBDIR: &'static str = "proofs";
+const PROOFS_SUBDIR: &str = "proofs";
+const STORE_TIMINGS_STEP: u32 = 100; // Store timings every 100 mc blocks.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProofStorageConfig {
+    /// Default: `4gb`.
     pub rocksdb_lru_capacity: ByteSize,
+    /// Default: `false`.
     pub rocksdb_enable_metrics: bool,
+    /// Default: `2 weeks`.
+    #[serde(with = "serde_helpers::humantime")]
+    pub min_proof_ttl: Duration,
 }
 
 impl Default for ProofStorageConfig {
@@ -34,6 +44,7 @@ impl Default for ProofStorageConfig {
         Self {
             rocksdb_lru_capacity: ByteSize::gb(4),
             rocksdb_enable_metrics: false,
+            min_proof_ttl: Duration::from_secs(14 * 86400),
         }
     }
 }
@@ -48,6 +59,7 @@ struct Inner {
     db: ProofDb,
     snapshot: ArcSwap<OwnedSnapshot>,
     current_vset: ArcSwapOption<ValidatorSet>,
+    min_proof_ttl_sec: u32,
 }
 
 impl ProofStorage {
@@ -106,8 +118,63 @@ impl ProofStorage {
                 db,
                 snapshot: ArcSwap::new(Arc::new(snapshot)),
                 current_vset: ArcSwapAny::default(),
+                min_proof_ttl_sec: config
+                    .min_proof_ttl
+                    .as_secs()
+                    .try_into()
+                    .unwrap_or(u32::MAX),
             }),
         })
+    }
+
+    #[allow(clippy::disallowed_methods)]
+    pub async fn init(&self, storage: &Storage, init_block_id: &BlockId) -> Result<()> {
+        let handles = storage.block_handle_storage();
+        let states = storage.shard_state_storage();
+        let blocks = storage.block_storage();
+
+        // Init current vset.
+        let current_vset = if init_block_id.seqno == 0 {
+            // Load zerostate
+            let zerostate = states
+                .load_state(init_block_id)
+                .await
+                .context("failed to load zerostate")?;
+
+            // Get current validator set from the state.
+            zerostate
+                .config_params()?
+                .get_current_validator_set()
+                .context("failed to get current validator set")
+                .map(Arc::new)?
+        } else {
+            // Find the latest key block (relative to the `init_block_id`).
+            let key_block_handle = handles
+                .find_prev_key_block(init_block_id.seqno + 1)
+                .context("no key block found")?;
+
+            // Load proof.
+            let block_proof = blocks
+                .load_block_proof(&key_block_handle)
+                .await
+                .context("failed to load init key block proof")?;
+
+            // Get current validator set from the proof.
+            let (block, _) = block_proof.virtualize_block()?;
+            let extra = block.extra.load()?;
+            let custom = extra.load_custom()?.context("invalid key block")?;
+            let config = custom.config.context("key block without config")?;
+
+            config
+                .get_current_validator_set()
+                .context("failed to get current validator set")
+                .map(Arc::new)?
+        };
+
+        self.set_current_vset(current_vset);
+
+        // Done
+        Ok(())
     }
 
     pub fn update_snapshot(&self) {
@@ -120,20 +187,6 @@ impl ProofStorage {
     }
 
     pub async fn build_proof(&self, account: &StdAddr, lt: u64) -> Result<Option<Cell>> {
-        fn decode_block(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(HashBytes, Cell)> {
-            let data = data.as_ref();
-            let file_hash = HashBytes::from_slice(&data[..32]);
-            let cell = Boc::decode(&data[32..])?;
-            Ok((file_hash, cell))
-        }
-
-        fn decode_signatures(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(u32, Cell)> {
-            let data = data.as_ref();
-            let utime_since = u32::from_le_bytes(data[..4].try_into().unwrap());
-            let cell = Boc::decode(&data[4..])?;
-            Ok((utime_since, cell))
-        }
-
         let this = self.inner.as_ref();
 
         let mut tx_key = [0u8; tables::Transactions::KEY_LEN];
@@ -276,28 +329,21 @@ impl ProofStorage {
         signatures: Dict<u16, BlockSignature>,
         ref_by_mc_seqno: u32,
     ) -> Result<()> {
-        use everscale_types::boc::ser::BocHeader;
-
-        fn encode_block(file_hash: &HashBytes, cell: Cell) -> Vec<u8> {
-            let mut target = Vec::with_capacity(1024);
-            target.extend_from_slice(file_hash.as_slice());
-            BocHeader::<ahash::RandomState>::with_root(cell.as_ref()).encode(&mut target);
-            target
-        }
-
-        fn encode_signatures(vset_utime_since: u32, cell: Cell) -> Vec<u8> {
-            let mut target = Vec::with_capacity(256);
-            target.extend_from_slice(&vset_utime_since.to_le_bytes());
-            BocHeader::<ahash::RandomState>::with_root(cell.as_ref()).encode(&mut target);
-            target
-        }
-
         let block_id = *block.id();
         let Ok::<i8, _>(workchain) = block_id.shard.workchain().try_into() else {
             return Ok(());
         };
 
         let cancelled = CancellationFlag::new();
+
+        let now = now_sec();
+        let min_proof_ttl = self.inner.min_proof_ttl_sec;
+
+        let gen_utime = block.load_info()?.gen_utime;
+        if now.saturating_sub(gen_utime) > min_proof_ttl {
+            tracing::debug!(gen_utime, now, "skipped outdated block");
+            return Ok(());
+        }
 
         tracing::debug!("started");
         scopeguard::defer! {
@@ -355,8 +401,32 @@ impl ProofStorage {
             let pivot_blocks_cf = &db.pivot_blocks.cf();
             let transactions_cf = &db.transactions.cf();
             let signatures_cf = &db.signatures.cf();
+            let timings_cf = &db.timings.cf();
             let mut batch = rocksdb::WriteBatch::new();
 
+            // Add timings for masterchain blocks.
+            let remove_bound_rx;
+            if is_masterchain && block_id.seqno % STORE_TIMINGS_STEP == 0 {
+                let remove_until = now.saturating_sub(min_proof_ttl);
+                let db = db.clone();
+
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                rayon::spawn(move || {
+                    let res = find_outdated_bound(&db, remove_until);
+                    tx.send(res).ok();
+                });
+                remove_bound_rx = Some(rx);
+
+                batch.put_cf(
+                    timings_cf,
+                    gen_utime.to_be_bytes(),
+                    block_id.seqno.to_le_bytes(),
+                );
+            } else {
+                remove_bound_rx = None;
+            }
+
+            // Prepare tx key/value buffers.
             let mut tx_value = [0; tables::Transactions::VALUE_LEN];
             tx_value[0] = workchain as u8;
             tx_value[1..9].copy_from_slice(&block_id.shard.prefix().to_be_bytes());
@@ -391,7 +461,7 @@ impl ProofStorage {
 
             // Wait for signatures and put them to the batch.
             if let Some(signatures) = signatures_rx {
-                debug_assert!(block_id.is_masterchain());
+                debug_assert!(is_masterchain);
                 let signatures = signatures.blocking_recv()??;
                 batch.put_cf(signatures_cf, block_id.seqno.to_be_bytes(), signatures);
             }
@@ -399,6 +469,41 @@ impl ProofStorage {
             // Wait for the pivot block proof and put it to the batch.
             let pivot = pivot_rx.blocking_recv()??;
             batch.put_cf(pivot_blocks_cf, &tx_value[0..13], pivot);
+
+            // Wait for bound to remove and put it to the batch.
+            if let Some(bound) = remove_bound_rx {
+                debug_assert!(is_masterchain);
+                if let Some(bound) = bound.blocking_recv()?? {
+                    batch.delete_range_cf(
+                        timings_cf,
+                        [0; tables::Timings::KEY_LEN],
+                        bound.timings_key(),
+                    );
+
+                    batch.delete_range_cf(
+                        transactions_cf,
+                        [0; tables::Transactions::KEY_LEN],
+                        bound.tx_key(),
+                    );
+
+                    const {
+                        assert!(tables::PivotBlocks::KEY_LEN == tables::PrunedBlocks::KEY_LEN);
+                    }
+
+                    for key in bound.iter_block_keys() {
+                        batch.delete_range_cf(
+                            pivot_blocks_cf,
+                            [0; tables::PivotBlocks::KEY_LEN],
+                            key,
+                        );
+                        batch.delete_range_cf(
+                            pruned_blocks_cf,
+                            [0; tables::PrunedBlocks::KEY_LEN],
+                            key,
+                        );
+                    }
+                }
+            }
 
             // Write the result batch to rocksdb.
             let started_at = Instant::now();
@@ -414,6 +519,111 @@ impl ProofStorage {
         })
         .await?
     }
+}
+
+struct OutdatedBound {
+    remove_until: u32,
+    lt: u64,
+    blocks: Vec<BlockIdShort>,
+}
+
+impl OutdatedBound {
+    fn timings_key(&self) -> [u8; tables::Timings::KEY_LEN] {
+        // Use next timestamp to remove everything before this key.
+        (self.remove_until + 1).to_be_bytes()
+    }
+
+    fn tx_key(&self) -> [u8; tables::Transactions::KEY_LEN] {
+        // Use next lt to remove everything before this key.
+        let lt = self.lt + 1;
+
+        let mut key = [0; tables::Transactions::KEY_LEN];
+        key[0..32].copy_from_slice(&lt.to_be_bytes());
+        key
+    }
+
+    fn iter_block_keys(&self) -> impl Iterator<Item = [u8; tables::PivotBlocks::KEY_LEN]> + '_ {
+        self.blocks.iter().filter_map(|block_id| {
+            let Ok::<i8, _>(workchain) = block_id.shard.workchain().try_into() else {
+                return None;
+            };
+
+            // Use next seqno to remove everything before this key.
+            let seqno = block_id.seqno + 1;
+
+            let mut key = [0; tables::PivotBlocks::KEY_LEN];
+            key[0] = workchain as u8;
+            key[1..9].copy_from_slice(&block_id.shard.prefix().to_be_bytes());
+            key[9..13].copy_from_slice(&seqno.to_be_bytes());
+
+            Some(key)
+        })
+    }
+}
+
+fn find_outdated_bound(db: &ProofDb, remove_until: u32) -> Result<Option<OutdatedBound>> {
+    let until_mc_seqno = {
+        let mut iter = db.timings.raw_iterator();
+        iter.seek_for_prev(remove_until.to_be_bytes());
+        let Some(value) = iter.value() else {
+            return Ok(None);
+        };
+        u32::from_le_bytes(value[..4].try_into().unwrap())
+    };
+
+    let mut mc_block_key = [0; tables::PivotBlocks::KEY_LEN];
+    mc_block_key[0] = -1i8 as u8;
+    mc_block_key[1..9].copy_from_slice(&ShardIdent::MASTERCHAIN.prefix().to_be_bytes());
+    mc_block_key[9..13].copy_from_slice(&until_mc_seqno.to_be_bytes());
+
+    let (_, block) = match db.pivot_blocks.get(mc_block_key)? {
+        Some(data) => decode_block(data)?,
+        None => return Ok(None),
+    };
+
+    let mut info = block::parse_latest_shard_blocks(block)?;
+    info.shard_ids.push(BlockIdShort {
+        shard: ShardIdent::MASTERCHAIN,
+        seqno: until_mc_seqno,
+    });
+
+    Ok(Some(OutdatedBound {
+        remove_until,
+        lt: info.end_lt,
+        blocks: info.shard_ids,
+    }))
+}
+
+fn encode_block(file_hash: &HashBytes, cell: Cell) -> Vec<u8> {
+    use everscale_types::boc::ser::BocHeader;
+
+    let mut target = Vec::with_capacity(1024);
+    target.extend_from_slice(file_hash.as_slice());
+    BocHeader::<ahash::RandomState>::with_root(cell.as_ref()).encode(&mut target);
+    target
+}
+
+fn decode_block(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(HashBytes, Cell)> {
+    let data = data.as_ref();
+    let file_hash = HashBytes::from_slice(&data[..32]);
+    let cell = Boc::decode(&data[32..])?;
+    Ok((file_hash, cell))
+}
+
+fn encode_signatures(vset_utime_since: u32, cell: Cell) -> Vec<u8> {
+    use everscale_types::boc::ser::BocHeader;
+
+    let mut target = Vec::with_capacity(256);
+    target.extend_from_slice(&vset_utime_since.to_le_bytes());
+    BocHeader::<ahash::RandomState>::with_root(cell.as_ref()).encode(&mut target);
+    target
+}
+
+fn decode_signatures(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(u32, Cell)> {
+    let data = data.as_ref();
+    let utime_since = u32::from_le_bytes(data[..4].try_into().unwrap());
+    let cell = Boc::decode(&data[4..])?;
+    Ok((utime_since, cell))
 }
 
 pub type ProofDb = WeeDb<ProofTables>;
@@ -489,6 +699,7 @@ weedb::tables! {
         pivot_blocks: tables::PivotBlocks,
         transactions: tables::Transactions,
         signatures: tables::Signatures,
+        timings: tables::Timings,
     }
 }
 
