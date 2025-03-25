@@ -10,14 +10,17 @@ use everscale_types::models::{
     BlockId, BlockIdShort, BlockSignature, ShardIdent, StdAddr, ValidatorSet,
 };
 use everscale_types::prelude::*;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tycho_block_util::block::BlockStuff;
 use tycho_storage::{FileDb, Storage};
+use tycho_util::futures::JoinTask;
 use tycho_util::serde_helpers;
 use tycho_util::sync::CancellationFlag;
 use tycho_util::time::now_sec;
 use weedb::{
-    rocksdb, Caches, MigrationError, OwnedSnapshot, Semver, VersionProvider, WeeDb, WeeDbRaw,
+    rocksdb, Caches, MigrationError, OwnedSnapshot, Semver, Tables, VersionProvider, WeeDb,
+    WeeDbRaw,
 };
 
 pub mod block;
@@ -36,6 +39,9 @@ pub struct ProofStorageConfig {
     /// Default: `2 weeks`.
     #[serde(with = "serde_helpers::humantime")]
     pub min_proof_ttl: Duration,
+    /// Default: `10 minutes`
+    #[serde(with = "serde_helpers::humantime")]
+    pub compaction_interval: Duration,
 }
 
 impl Default for ProofStorageConfig {
@@ -45,6 +51,7 @@ impl Default for ProofStorageConfig {
             rocksdb_lru_capacity: ByteSize::gb(4),
             rocksdb_enable_metrics: false,
             min_proof_ttl: Duration::from_secs(14 * 86400),
+            compaction_interval: Duration::from_secs(10 * 60),
         }
     }
 }
@@ -60,6 +67,7 @@ struct Inner {
     snapshot: ArcSwap<OwnedSnapshot>,
     current_vset: ArcSwapOption<ValidatorSet>,
     min_proof_ttl_sec: u32,
+    _compaction_handle: JoinTask<()>,
 }
 
 impl ProofStorage {
@@ -111,7 +119,27 @@ impl ProofStorage {
 
         db.apply_migrations().await?;
 
+        trigger_compaction(&db).await?;
+
         let snapshot = db.owned_snapshot();
+
+        let compaction_handle = JoinTask::new({
+            let db = db.clone();
+            let compaction_interval = config.compaction_interval;
+            async move {
+                let offset = rand::thread_rng().gen_range(Duration::ZERO..compaction_interval);
+                tokio::time::sleep(offset).await;
+
+                let mut interval = tokio::time::interval(compaction_interval);
+                loop {
+                    interval.tick().await;
+
+                    if let Err(e) = trigger_compaction(&db).await {
+                        tracing::error!("failed to trigger compaction: {e:?}");
+                    }
+                }
+            }
+        });
 
         Ok(Self {
             inner: Arc::new(Inner {
@@ -123,6 +151,7 @@ impl ProofStorage {
                     .as_secs()
                     .try_into()
                     .unwrap_or(u32::MAX),
+                _compaction_handle: compaction_handle,
             }),
         })
     }
@@ -592,6 +621,47 @@ fn find_outdated_bound(db: &ProofDb, remove_until: u32) -> Result<Option<Outdate
         lt: info.end_lt,
         blocks: info.shard_ids,
     }))
+}
+
+async fn trigger_compaction(db: &ProofDb) -> Result<()> {
+    let cancelled = CancellationFlag::new();
+    scopeguard::defer! {
+        cancelled.cancel();
+    }
+
+    let span = tracing::Span::current();
+
+    let db = db.clone();
+    let cancelled = cancelled.clone();
+    tokio::task::spawn_blocking(move || {
+        let _span = span.enter();
+
+        let mut compaction_options = rocksdb::CompactOptions::default();
+        compaction_options.set_exclusive_manual_compaction(true);
+        compaction_options
+            .set_bottommost_level_compaction(rocksdb::BottommostLevelCompaction::ForceOptimized);
+
+        for table in db.column_families() {
+            check(&cancelled)?;
+
+            tracing::info!(cf = table.name, "compaction started");
+
+            let instant = Instant::now();
+            let bound = Option::<[u8; 0]>::None;
+
+            db.rocksdb()
+                .compact_range_cf_opt(&table.cf, bound, bound, &compaction_options);
+
+            tracing::info!(
+                cf = table.name,
+                elapsed_sec = %instant.elapsed().as_secs_f64(),
+                "compaction finished"
+            );
+        }
+
+        Ok::<_, anyhow::Error>(())
+    })
+    .await?
 }
 
 fn encode_block(file_hash: &HashBytes, cell: Cell) -> Vec<u8> {

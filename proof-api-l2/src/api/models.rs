@@ -83,11 +83,7 @@ pub mod serde_ton_address {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = StdAddrBase64Repr::<true>::deserialize(deserializer)?;
-        if s.workchain != 0 {
-            return Err(serde::de::Error::custom("workchain must be 0"));
-        }
-        Ok(s)
+        StdAddrBase64Repr::<true>::deserialize(deserializer)
     }
 
     pub fn serialize<S>(addr: &StdAddr, serializer: S) -> Result<S::Ok, S::Error>
