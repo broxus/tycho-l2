@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
     {
         // Get mc info
         let mc_block_id = client.get_last_mc_block_id().await?;
+        tracing::info!(?mc_block_id);
 
         // Get last mc block
         let mc_block = client.get_block(mc_block_id).await?;
