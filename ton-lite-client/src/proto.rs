@@ -1,4 +1,4 @@
-use everscale_types::models::{BlockId, BlockIdShort};
+use everscale_types::models::{BlockId, BlockIdShort, StdAddr};
 use tl_proto::{IntermediateBytes, TlRead, TlWrite};
 
 #[derive(TlWrite)]
@@ -136,6 +136,14 @@ pub struct ConfigInfo {
 }
 
 #[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.transactionList", scheme = "proto.tl")]
+pub struct TransactionList {
+    #[tl(with = "tl_vec_block_id_full")]
+    pub block_ids: Vec<BlockId>,
+    pub transactions: Vec<u8>,
+}
+
+#[derive(Debug, TlRead)]
 #[tl(boxed, id = "liteServer.error", scheme = "proto.tl")]
 pub struct Error {
     pub code: i32,
@@ -226,6 +234,16 @@ pub mod rpc {
         #[tl(flags_bit = "mode.4")]
         pub with_validator_set: Option<()>,
     }
+
+    #[derive(Clone, Debug, TlWrite)]
+    #[tl(boxed, id = "liteServer.getTransactions", scheme = "proto.tl")]
+    pub struct GetTransactions {
+        pub count: u32,
+        #[tl(with = "tl_account_id")]
+        pub account: StdAddr,
+        pub lt: u64,
+        pub hash: [u8; 32],
+    }
 }
 
 mod tl_string {
@@ -299,5 +317,56 @@ pub mod tl_block_id_full {
             root_hash,
             file_hash,
         })
+    }
+}
+
+pub mod tl_vec_block_id_full {
+    use tl_proto::{TlPacket, TlResult};
+
+    use super::*;
+
+    pub const fn size_hint(items: &[BlockId]) -> usize {
+        4 + items.len() * tl_block_id_full::SIZE_HINT
+    }
+
+    pub fn write<P: TlPacket>(items: &[BlockId], packet: &mut P) {
+        (items.len() as u32).write_to(packet);
+        for item in items {
+            tl_block_id_full::write(item, packet);
+        }
+    }
+
+    pub fn read(packet: &mut &[u8]) -> TlResult<Vec<BlockId>> {
+        let len = u32::read_from(packet)?;
+        let mut res = Vec::with_capacity(len.min(64) as usize);
+        for _ in 0..len {
+            let block_id = tl_block_id_full::read(packet)?;
+            res.push(block_id);
+        }
+        Ok(res)
+    }
+}
+
+pub mod tl_account_id {
+    use everscale_types::cell::HashBytes;
+    use everscale_types::models::StdAddr;
+    use tl_proto::{TlError, TlPacket, TlRead, TlResult, TlWrite};
+
+    pub const fn size_hint(_: &StdAddr) -> usize {
+        4 + 32
+    }
+
+    pub fn write<P: TlPacket>(addr: &StdAddr, packet: &mut P) {
+        (addr.workchain as i32).write_to(packet);
+        addr.address.0.write_to(packet);
+    }
+
+    pub fn read(packet: &mut &[u8]) -> TlResult<StdAddr> {
+        let Ok::<i8, _>(workchain) = i32::read_from(packet)?.try_into() else {
+            return Err(TlError::InvalidData);
+        };
+        let address = HashBytes(<[u8; 32]>::read_from(packet)?);
+
+        Ok(StdAddr::new(workchain, address))
     }
 }

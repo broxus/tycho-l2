@@ -17,6 +17,7 @@ aide = { version = "0.13.4", features = ["axum", "scalar"] }
 anyhow = "1.0"
 arc-swap = "1.7.1"
 axum = "0.7"
+bytes = "1.10.1"
 bytesize = "2.0.1"
 clap = { version = "4.5.3", features = ["derive"] }
 ctr = "0.9"
@@ -25,8 +26,8 @@ everscale-crypto = "0.3"
 everscale-types = { version = "0.1.2", default-features = false }
 fdlimit = "0.3"
 futures-util = "0.3.31"
-humantime = "2.2"
 generic-array = "0.14"
+humantime = "2.2"
 parking_lot = "0.12.3"
 rand = "0.8"
 rayon = "1.10"

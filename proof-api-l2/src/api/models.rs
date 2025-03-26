@@ -22,19 +22,6 @@ pub struct ApiInfoResponse {
     pub build: String,
 }
 
-/// Unique account transaction index.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ProofChainRequest {
-    /// Account address (both raw and base64 formats are supported).
-    pub account: TonAddr,
-
-    /// Transaction logical time.
-    #[schemars(with = "String")]
-    #[serde(with = "serde_helpers::string")]
-    pub lt: u64,
-}
-
 /// Block proof chain for an existing transaction.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

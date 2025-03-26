@@ -1988,6 +1988,15 @@ dependencies = [
 [[package]]
 name = "proof-api-ton"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "everscale-types",
+ "proof-api-util",
+ "tikv-jemallocator",
+ "ton-lite-client",
+]
 
 [[package]]
 name = "proof-api-util"
@@ -3119,15 +3128,16 @@ dependencies = [
  "dashmap",
  "everscale-crypto",
  "everscale-types",
+ "futures-util",
  "generic-array",
  "proof-api-util",
  "rand 0.8.5",
+ "scopeguard",
  "serde",
  "sha2",
  "thiserror 1.0.69",
  "tl-proto",
  "tokio",
- "tokio-util",
  "tracing",
  "tracing-subscriber",
  "tycho-util",

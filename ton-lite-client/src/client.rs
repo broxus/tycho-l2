@@ -1,13 +1,13 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use everscale_types::models::{BlockId, BlockIdShort};
+use everscale_types::models::{BlockId, BlockIdShort, StdAddr};
 use everscale_types::prelude::*;
 use tl_proto::{TlRead, TlWrite};
 
 use crate::config::LiteClientConfig;
 use crate::proto;
-use crate::tcp_adnl::{TcpAdnl, TcpAdnlConfig, TcpAdnlError};
+use crate::tcp_adnl::{TcpAdnl, TcpAdnlError};
 
 #[derive(Clone)]
 pub struct LiteClient {
@@ -17,19 +17,13 @@ pub struct LiteClient {
 
 impl LiteClient {
     pub async fn new(config: &LiteClientConfig) -> Result<Self> {
-        let tcp_adnl = TcpAdnl::connect(TcpAdnlConfig {
-            server_address: config.server_address,
-            server_pubkey: config.server_pubkey,
-            connection_timeout: config.connection_timeout,
-        })
-        .await
-        .map_err(LiteClientError::ConnectionFailed)?;
-
-        let query_timeout = config.query_timeout;
-
+        let fut = TcpAdnl::connect(config.server_address, config.server_pubkey);
         Ok(Self {
-            tcp_adnl,
-            query_timeout,
+            tcp_adnl: match tokio::time::timeout(config.connection_timeout, fut).await {
+                Ok(res) => res.map_err(LiteClientError::ConnectionFailed)?,
+                Err(_) => return Err(LiteClientError::Timeout.into()),
+            },
+            query_timeout: config.query_timeout,
         })
     }
 
@@ -100,6 +94,21 @@ impl LiteClient {
         Err(LiteClientError::InvalidBlockProof.into())
     }
 
+    pub async fn get_transactions(
+        &self,
+        account: &StdAddr,
+        lt: u64,
+        count: u32,
+    ) -> Result<proto::TransactionList> {
+        self.query::<_, proto::TransactionList>(proto::rpc::GetTransactions {
+            account: account.clone(),
+            lt,
+            count,
+            hash: [0; 32],
+        })
+        .await
+    }
+
     async fn query<Q, R>(&self, query: Q) -> Result<R>
     where
         Q: TlWrite<Repr = tl_proto::Boxed>,
@@ -127,11 +136,12 @@ impl LiteClient {
             }
         }
 
-        match self.tcp_adnl.query(query, self.query_timeout).await {
-            Ok(Some(QueryResponse::Ok(data))) => Ok(data),
-            Ok(Some(QueryResponse::Err(message))) => Err(anyhow::Error::msg(message)),
-            Ok(None) => Err(LiteClientError::QueryTimeout.into()),
-            Err(e) => Err(LiteClientError::QueryFailed(e).into()),
+        let fut = self.tcp_adnl.query(query);
+        match tokio::time::timeout(self.query_timeout, fut).await {
+            Ok(Ok(QueryResponse::Ok(data))) => Ok(data),
+            Ok(Ok(QueryResponse::Err(message))) => Err(anyhow::Error::msg(message)),
+            Ok(Err(e)) => Err(LiteClientError::QueryFailed(e).into()),
+            Err(_) => Err(LiteClientError::Timeout.into()),
         }
     }
 }
@@ -142,8 +152,8 @@ pub enum LiteClientError {
     ConnectionFailed(#[source] TcpAdnlError),
     #[error("query failed")]
     QueryFailed(#[source] TcpAdnlError),
-    #[error("query timeout")]
-    QueryTimeout,
     #[error("invalid block proof")]
     InvalidBlockProof,
+    #[error("timeout")]
+    Timeout,
 }

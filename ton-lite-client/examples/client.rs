@@ -1,5 +1,4 @@
-use std::net::SocketAddrV4;
-use std::str::FromStr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 
 use anyhow::Result;
 use everscale_types::cell::HashBytes;
@@ -13,8 +12,8 @@ use ton_lite_client::{LiteClient, LiteClientConfig};
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let server_pubkey = "n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk=".parse::<HashBytes>()?;
-    let server_address = SocketAddrV4::from_str("5.9.10.47:19949")?;
+    let server_pubkey = "aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=".parse::<HashBytes>()?;
+    let server_address = SocketAddrV4::new(Ipv4Addr::from_bits(-2018135749i32 as u32), 53312);
 
     let config = LiteClientConfig::from_addr_and_keys(server_address, server_pubkey);
     let client = LiteClient::new(&config).await?;

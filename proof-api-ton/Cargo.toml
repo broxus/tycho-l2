@@ -10,6 +10,21 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+everscale-types = { workspace = true }
+
+tikv-jemallocator = { workspace = true, features = [
+    "unprefixed_malloc_on_supported_platforms",
+    "background_threads",
+] }
+
+proof-api-util = { workspace = true }
+ton-lite-client = { workspace = true }
+
+[build-dependencies]
+anyhow = { workspace = true }
 
 [lints]
 workspace = true

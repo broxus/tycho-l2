@@ -1,7 +1,6 @@
-use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::pin::pin;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use ctr::cipher::{KeyIvInit, StreamCipher};
 use everscale_crypto::ed25519;
@@ -9,21 +8,18 @@ use everscale_types::cell::HashBytes;
 use rand::{Rng, RngCore};
 use sha2::Digest;
 use tl_proto::{IntermediateBytes, TlRead, TlWrite};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
+use tokio::sync::futures::Notified;
+use tokio::sync::{Mutex, Notify};
+use tycho_util::futures::JoinTask;
+use tycho_util::sync::CancellationFlag;
 
 use self::queries_cache::QueriesCache;
 use crate::proto;
 
 mod queries_cache;
-
-pub struct TcpAdnlConfig {
-    pub server_address: SocketAddr,
-    pub server_pubkey: HashBytes,
-    pub connection_timeout: Duration,
-}
 
 #[derive(Clone)]
 pub struct TcpAdnl {
@@ -31,18 +27,14 @@ pub struct TcpAdnl {
 }
 
 impl TcpAdnl {
-    pub async fn connect(config: TcpAdnlConfig) -> Result<Self, TcpAdnlError> {
-        let (socket_rx, socket_tx) = match tokio::time::timeout(
-            config.connection_timeout,
-            TcpStream::connect(config.server_address),
-        )
-        .await
-        {
-            Ok(connection) => connection
-                .map_err(TcpAdnlError::ConnectionError)?
-                .into_split(),
-            Err(_) => return Err(TcpAdnlError::ConnectionTimeout),
-        };
+    pub async fn connect<S>(address: S, pubkey: HashBytes) -> Result<Self, TcpAdnlError>
+    where
+        S: tokio::net::ToSocketAddrs,
+    {
+        let (socket_rx, mut socket_tx) = TcpStream::connect(address)
+            .await
+            .map_err(TcpAdnlError::ConnectionError)?
+            .into_split();
 
         let mut initial_buffer = vec![0; 160];
         rand::thread_rng().fill_bytes(&mut initial_buffer);
@@ -56,61 +48,58 @@ impl TcpAdnl {
             generic_array::GenericArray::from_slice(&initial_buffer[80..96]),
         );
 
-        let (tx, rx) = mpsc::unbounded_channel::<Packet>();
-
-        let state = Arc::new(SharedState {
-            queries_cache: Arc::new(Default::default()),
-            cancellation_token: Default::default(),
-            packets_tx: tx,
-            query_id: Default::default(),
-        });
-
-        tokio::spawn(socket_writer(
-            socket_tx,
-            cipher_send,
-            rx,
-            state.cancellation_token.clone(),
-        ));
-        tokio::spawn(socket_reader(
-            socket_rx,
-            cipher_receive,
-            state.queries_cache.clone(),
-            state.cancellation_token.clone(),
-        ));
-
-        let server_pubkey = ed25519::PublicKey::from_bytes(config.server_pubkey.0)
-            .ok_or(TcpAdnlError::InvalidPubkey)?;
+        let server_pubkey =
+            ed25519::PublicKey::from_bytes(pubkey.0).ok_or(TcpAdnlError::InvalidPubkey)?;
         let client_secret = rand::thread_rng().gen::<ed25519::SecretKey>();
 
         build_handshake_packet(&server_pubkey, &client_secret, &mut initial_buffer);
 
-        state
-            .packets_tx
-            .send(Packet::unencrypted(initial_buffer))
-            .ok()
-            .unwrap();
+        let queries_cache = Arc::new(QueriesCache::default());
+        let closed = Closed::default();
+        let receiver = JoinTask::new(socket_reader(
+            socket_rx,
+            cipher_receive,
+            queries_cache.clone(),
+            closed.clone(),
+        ));
+
+        socket_tx
+            .write_all(&initial_buffer)
+            .await
+            .map_err(TcpAdnlError::ConnectionError)?;
+
+        let state = Arc::new(SharedState {
+            queries_cache,
+            query_id: Default::default(),
+            sender: Arc::new(Mutex::new(Sender {
+                cipher: cipher_send,
+                socket: socket_tx,
+            })),
+            closed,
+            _receiver: receiver,
+        });
 
         Ok(Self { state })
     }
 
-    pub async fn query<Q, R>(&self, query: Q, timeout: Duration) -> Result<Option<R>, TcpAdnlError>
+    pub fn is_closed(&self) -> bool {
+        self.state.closed.is_closed()
+    }
+
+    /// Returns `None` if already closed,
+    /// otherwise returns a notify of the closing event.
+    pub fn closed_notify(&self) -> Option<Notified<'_>> {
+        self.state.closed.closed_notify()
+    }
+
+    pub async fn query<Q, R>(&self, query: Q) -> Result<R, TcpAdnlError>
     where
         Q: TlWrite<Repr = tl_proto::Boxed>,
         for<'a> R: TlRead<'a>,
     {
-        let cancelled = self.state.cancellation_token.cancelled();
-        if self.state.cancellation_token.is_cancelled() {
-            return Err(TcpAdnlError::SocketClosed);
-        }
-
+        let seqno = self.state.query_id.fetch_add(1, Ordering::Relaxed);
         let mut query_id = [0; 32];
-        query_id[..std::mem::size_of::<usize>()].copy_from_slice(
-            &self
-                .state
-                .query_id
-                .fetch_add(1, Ordering::Relaxed)
-                .to_le_bytes(),
-        );
+        query_id[..std::mem::size_of::<usize>()].copy_from_slice(&seqno.to_le_bytes());
 
         let query = proto::LiteQuery {
             wrapped_request: IntermediateBytes(proto::WrappedQuery {
@@ -119,187 +108,184 @@ impl TcpAdnl {
             }),
         };
 
-        let data = tl_proto::serialize(proto::AdnlMessageQuery {
+        let mut data = tl_proto::serialize(proto::AdnlMessageQuery {
             query_id: &query_id,
             query: IntermediateBytes(query),
         });
 
         let pending_query = self.state.queries_cache.add_query(query_id);
-        if self.state.packets_tx.send(Packet::encrypted(data)).is_err() {
-            return Err(TcpAdnlError::SocketClosed);
+
+        let cancelled = CancellationFlag::new();
+        scopeguard::defer! {
+            cancelled.cancel();
         }
 
-        let answer = tokio::select! {
-            res = tokio::time::timeout(timeout, pending_query.wait()) => {
-                res.ok().flatten()
+        let cancelled = cancelled.clone();
+        let sender = self.state.sender.clone();
+        let handle = tokio::task::spawn(async move {
+            if cancelled.check() {
+                return Ok(());
             }
-            _  = cancelled => return Err(TcpAdnlError::SocketClosed),
+
+            let mut sender = sender.lock().await;
+            if cancelled.check() {
+                return Ok(());
+            }
+
+            encrypt_data(&mut sender.cipher, &mut data);
+            sender.socket.write_all(&data).await
+        });
+
+        let query = pin!(pending_query.wait());
+        let res = match futures_util::future::select(handle, query).await {
+            futures_util::future::Either::Left((sent, right)) => {
+                sent.map_err(|_| TcpAdnlError::SocketClosed)?
+                    .map_err(|e| TcpAdnlError::ConnectionError(e))?;
+                right.await
+            }
+            futures_util::future::Either::Right((left, _)) => left,
         };
 
-        Ok(match answer {
-            Some(query) => {
-                Some(tl_proto::deserialize(&query).map_err(TcpAdnlError::InvalidAnswer)?)
-            }
-            None => None,
-        })
+        match res {
+            Some(res) => tl_proto::deserialize(&res).map_err(TcpAdnlError::InvalidAnswer),
+            None => Err(TcpAdnlError::DuplicateQuery),
+        }
     }
+}
+
+#[derive(Default, Clone)]
+struct Closed {
+    inner: Arc<ClosedInner>,
+}
+
+impl Closed {
+    pub fn is_closed(&self) -> bool {
+        self.inner.closed.load(Ordering::Acquire)
+    }
+
+    pub fn closed_notify(&self) -> Option<Notified<'_>> {
+        let closed = self.inner.notify.notified();
+        (!self.is_closed()).then_some(closed)
+    }
+
+    fn close(&self) {
+        self.inner.closed.store(true, Ordering::Release);
+        self.inner.notify.notify_waiters();
+    }
+}
+
+#[derive(Default)]
+struct ClosedInner {
+    closed: AtomicBool,
+    notify: Notify,
 }
 
 struct SharedState {
     queries_cache: Arc<QueriesCache>,
-    cancellation_token: CancellationToken,
-    packets_tx: PacketsTx,
     query_id: AtomicUsize,
+    sender: Arc<Mutex<Sender>>,
+    closed: Closed,
+    _receiver: JoinTask<std::io::Error>,
 }
 
-impl Drop for SharedState {
-    fn drop(&mut self) {
-        self.cancellation_token.cancel();
-    }
-}
-
-async fn socket_writer<T>(
-    mut socket: T,
-    mut cipher: Aes256Ctr,
-    mut rx: PacketsRx,
-    cancellation_token: CancellationToken,
-) where
-    T: AsyncWrite + Unpin,
-{
-    tokio::pin!(let cancelled = cancellation_token.cancelled(););
-
-    while let Some(mut packet) = rx.recv().await {
-        let data = &mut packet.data;
-
-        if packet.encrypt {
-            let len = data.len();
-
-            data.reserve(len + 68);
-            data.resize(len + 36, 0);
-            data.copy_within(..len, 36);
-            data[..4].copy_from_slice(&((len + 64) as u32).to_le_bytes());
-
-            let mut nonce = [0u8; 32];
-            rand::thread_rng().fill(&mut nonce[..]);
-
-            data.extend_from_slice(sha2::Sha256::digest(&data[4..]).as_slice());
-
-            cipher.apply_keystream(data);
-        }
-
-        tokio::select! {
-            res = socket.write_all(data) => match res {
-                Ok(_) => continue,
-                Err(e) => {
-                    if !cancellation_token.is_cancelled() {
-                        cancellation_token.cancel();
-                        tracing::error!("failed to write data to the socket: {e:?}");
-                    }
-                    break;
-                }
-            },
-            _ = &mut cancelled => break,
-        }
-    }
-
-    tracing::debug!("sender loop finished");
+struct Sender {
+    cipher: Aes256Ctr,
+    socket: OwnedWriteHalf,
 }
 
 async fn socket_reader<T>(
     mut socket: T,
     mut cipher: Aes256Ctr,
     queries_cache: Arc<QueriesCache>,
-    cancellation_token: CancellationToken,
-) where
+    closed: Closed,
+) -> std::io::Error
+where
     T: AsyncRead + Unpin,
 {
-    tokio::pin!(let cancelled = cancellation_token.cancelled(););
+    const MIN_PACKET_LEN: usize = 4 + 32 + 32;
 
-    loop {
-        let mut length = [0; 4];
-        tokio::select! {
-            res = socket.read_exact(&mut length) => match res {
-                Ok(_) => cipher.apply_keystream(&mut length),
-                Err(e) => {
-                    if !cancellation_token.is_cancelled() {
-                        cancellation_token.cancel();
-                        tracing::error!("failed to read length from the socket: {e:?}");
-                    }
-                    break;
-                }
-            },
-            _ = &mut cancelled => break,
-        }
+    scopeguard::defer! {
+        closed.close();
+        tracing::debug!("socket reader finished");
+    }
 
-        let length = u32::from_le_bytes(length) as usize;
-        if length < 64 {
-            continue;
-        }
+    let mut packet = Vec::with_capacity(4096);
 
-        let mut buffer = vec![0; length];
-        tokio::select! {
-            res = socket.read_exact(&mut buffer) => match res {
-                Ok(_) => cipher.apply_keystream(&mut buffer),
-                Err(e) => {
-                    if !cancellation_token.is_cancelled() {
-                        cancellation_token.cancel();
-                        tracing::error!("failed to read data from the socket: {e:?}");
-                    }
-                    break;
-                }
-            },
-            _ = &mut cancelled => break,
-        }
-
-        if !sha2::Sha256::digest(&buffer[..length - 32])
-            .as_slice()
-            .eq(&buffer[length - 32..length])
-        {
-            tracing::warn!("packet checksum mismatch");
-            continue;
-        }
-
-        buffer.truncate(length - 32);
-        buffer.drain(..32);
-
-        if buffer.is_empty() {
-            continue;
-        }
-
-        match tl_proto::deserialize::<proto::AdnlMessageAnswer<'_>>(&buffer) {
-            Ok(proto::AdnlMessageAnswer { query_id, data }) => {
-                queries_cache.update_query(query_id, data);
+    let mut buffer = [0u8; 4096];
+    let mut target_len = None::<usize>;
+    'outer: loop {
+        match socket.read(&mut buffer).await {
+            Ok(0) => {
+                return std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "socket closed")
             }
-            Err(e) => tracing::warn!("invalid response: {e:?}"),
-        };
-    }
+            Ok(n) => {
+                let buffer = &mut buffer[..n];
+                cipher.apply_keystream(buffer);
+                packet.extend_from_slice(buffer);
+            }
+            Err(e) => {
+                tracing::warn!(?e, "socket error");
+                return e;
+            }
+        }
 
-    tracing::debug!("receiver loop finished");
-}
+        while packet.len() >= target_len.unwrap_or(MIN_PACKET_LEN) {
+            let length = u32::from_le_bytes(packet[..4].try_into().unwrap()) as usize + 4;
+            if packet.len() < length {
+                target_len = Some(length);
+                continue 'outer;
+            }
 
-struct Packet {
-    data: Vec<u8>,
-    encrypt: bool,
-}
+            'packet: {
+                if length < MIN_PACKET_LEN {
+                    tracing::warn!("too small packet");
+                    break 'packet;
+                }
 
-impl Packet {
-    fn encrypted(data: Vec<u8>) -> Self {
-        Self {
-            data,
-            encrypt: true,
+                if !sha2::Sha256::digest(&packet[4..length - 32])
+                    .as_slice()
+                    .eq(&packet[length - 32..length])
+                {
+                    tracing::warn!("packet checksum mismatch");
+                    break 'packet;
+                }
+
+                let data = &packet[4 + 32..length - 32];
+                if data.is_empty() {
+                    break 'packet;
+                }
+
+                match tl_proto::deserialize::<proto::AdnlMessageAnswer<'_>>(data) {
+                    Ok(proto::AdnlMessageAnswer { query_id, data }) => {
+                        queries_cache.update_query(query_id, data);
+                    }
+                    Err(e) => tracing::warn!("invalid response: {e:?}"),
+                };
+            };
+
+            // Skip packet.
+            packet.copy_within(length.., 0);
+            packet.truncate(packet.len() - length);
+            target_len = None;
         }
     }
-
-    fn unencrypted(data: Vec<u8>) -> Self {
-        Self {
-            data,
-            encrypt: false,
-        }
-    }
 }
 
-type PacketsTx = mpsc::UnboundedSender<Packet>;
-type PacketsRx = mpsc::UnboundedReceiver<Packet>;
+pub fn encrypt_data(cipher: &mut Aes256Ctr, data: &mut Vec<u8>) {
+    let len = data.len();
+
+    data.reserve(len + 68);
+    data.resize(len + 36, 0);
+    data.copy_within(..len, 36);
+    data[..4].copy_from_slice(&((len + 64) as u32).to_le_bytes());
+
+    let mut nonce = [0u8; 32];
+    rand::thread_rng().fill(&mut nonce[..]);
+
+    data.extend_from_slice(sha2::Sha256::digest(&data[4..]).as_slice());
+
+    cipher.apply_keystream(data);
+}
 
 pub fn build_handshake_packet(
     server_pubkey: &ed25519::PublicKey,
@@ -340,8 +326,6 @@ pub fn build_packet_cipher(shared_secret: &[u8; 32], checksum: &[u8; 32]) -> Aes
 
 #[derive(thiserror::Error, Debug)]
 pub enum TcpAdnlError {
-    #[error("connection timeout")]
-    ConnectionTimeout,
     #[error("failed to open connection")]
     ConnectionError(#[source] std::io::Error),
     #[error("socket closed")]
@@ -350,6 +334,8 @@ pub enum TcpAdnlError {
     InvalidAnswer(#[source] tl_proto::TlError),
     #[error("invalid pubkey")]
     InvalidPubkey,
+    #[error("duplicate query")]
+    DuplicateQuery,
 }
 
 pub type Aes256Ctr = ctr::Ctr64BE<aes::Aes256>;
