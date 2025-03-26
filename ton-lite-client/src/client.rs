@@ -158,7 +158,7 @@ impl LiteClient {
 
             #[allow(clippy::useless_asref)]
             fn read_from(packet: &mut &'a [u8]) -> tl_proto::TlResult<Self> {
-                let constructor = { <u32 as TlRead>::read_from(&mut packet.as_ref())? };
+                let constructor = { <u32 as TlRead>::read_from(&mut packet.as_ref())? }; // Don't touch!!!
                 if constructor == proto::Error::TL_ID {
                     let proto::Error { message, .. } = <_>::read_from(packet)?;
                     Ok(QueryResponse::Err(message))

@@ -45,6 +45,7 @@ impl BlockchainBlock for TychoBlock {
 }
 
 pub struct TychoBlockInfo {
+    pub seqno: u32,
     pub shard: ShardIdent,
     pub gen_utime: u32,
     pub start_lt: u64,
@@ -110,6 +111,7 @@ impl<'a> Load<'a> for TychoBlockInfo {
         }
 
         Ok(Self {
+            seqno,
             shard,
             gen_utime,
             start_lt,

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use anyhow::{Context, Result};
-use everscale_types::models::{BlockProof, BlockchainConfig};
+use everscale_types::models::BlockchainConfig;
 use everscale_types::prelude::*;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -61,21 +61,12 @@ impl JrpcClient {
         .context("failed to get latest key block")
     }
 
-    pub async fn get_key_block_proof(&self, seqno: u32) -> Result<Option<BlockProof>> {
-        let block_proof: BlockProofResponse = self
-            .post(&JrpcRequest {
-                method: "getKeyBlockProof",
-                params: &KeyBlockProofRequest { seqno },
-            })
-            .await
-            .context("failed to get key block proof")?;
-
-        let block_proof = block_proof
-            .proof
-            .map(BocRepr::decode_base64::<BlockProof, _>)
-            .transpose()?;
-
-        Ok(block_proof)
+    pub async fn get_key_block_proof(&self, seqno: u32) -> Result<BlockProofResponse> {
+        self.post(&JrpcRequest {
+            method: "getKeyBlockProof",
+            params: &KeyBlockProofRequest { seqno },
+        })
+        .await
     }
 
     pub async fn post<Q, R>(&self, data: &Q) -> Result<R>
@@ -116,12 +107,11 @@ pub struct LatestBlockchainConfigResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LatestKeyBlockResponse {
-    #[serde(with = "BocRepr")]
-    pub block: everscale_types::models::Block,
+    pub block: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct BlockProofResponse {
+pub struct BlockProofResponse {
     pub proof: Option<String>,
 }
 

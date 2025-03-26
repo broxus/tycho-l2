@@ -2826,6 +2826,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "async-trait",
  "everscale-types",
  "parking_lot",
  "proof-api-util",
@@ -2837,6 +2838,7 @@ dependencies = [
  "ton-lite-client",
  "tracing",
  "tracing-subscriber",
+ "tycho-block-util",
 ]
 
 [[package]]
