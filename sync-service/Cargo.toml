@@ -11,14 +11,19 @@ license.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-base64 = { workspace = true }
+arc-swap = { workspace = true }
 everscale-types = { workspace = true, features = ["tycho", "models", "base64", "serde"] }
+parking_lot = { workspace = true }
 reqwest = { workspace = true, features = ["http2", "json", "rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+proof-api-util = { workspace = true }
+ton-lite-client = { workspace = true }
 
 [lints]
 workspace = true

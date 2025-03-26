@@ -17,7 +17,6 @@ aide = { version = "0.13.4", features = ["axum", "scalar"] }
 anyhow = "1.0"
 arc-swap = "1.7.1"
 axum = "0.7"
-base64 = "0.22.1"
 bytesize = "2.0.1"
 clap = { version = "4.5.3", features = ["derive"] }
 ctr = "0.9"
@@ -28,7 +27,7 @@ fdlimit = "0.3"
 futures-util = "0.3.31"
 humantime = "2.2"
 generic-array = "0.14"
-hex = "0.4.3"
+parking_lot = "0.12.3"
 rand = "0.8"
 rayon = "1.10"
 reqwest = { version = "0.12", default-features = false }
@@ -61,7 +60,9 @@ tycho-network = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7f
 tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
 tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
 
+# local deps
 proof-api-util = { path = "./util" }
+ton-lite-client = { path = "./ton-lite-client" }
 
 [patch.crates-io]
 everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "88dd2242c7679b752d695f8c5e8f7352c939a98c" }

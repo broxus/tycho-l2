@@ -59,7 +59,7 @@ impl LiteClient {
 
     pub async fn get_block(&self, id: &BlockId) -> Result<Cell> {
         let block = self
-            .query::<_, proto::BlockData>(proto::rpc::GetBlock { id: id.clone() })
+            .query::<_, proto::BlockData>(proto::rpc::GetBlock { id: *id })
             .await?;
 
         let cell = Boc::decode(block.data)?;
@@ -85,7 +85,7 @@ impl LiteClient {
         let block_proof = self
             .query::<_, proto::PartialBlockProof>(proto::rpc::GetBlockProof {
                 mode: (),
-                known_block: block_id.clone(),
+                known_block: *block_id,
                 target_block: None,
             })
             .await?;
