@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use everscale_types::cell::HashBytes;
-use sync_service::stream::ton;
+use sync_service::stream::BlockStream;
 use ton_lite_client::{LiteClient, LiteClientConfig};
 
 #[tokio::main]
@@ -16,9 +16,9 @@ async fn main() -> Result<()> {
     let config = LiteClientConfig::from_addr_and_keys(server_address, server_pubkey);
     let client = LiteClient::new(&config).await?;
 
-    let stream = ton::BlockStream::new(client);
+    let stream = BlockStream::new(client);
     while let Some(block) = stream.next_block().await {
-        tracing::info!(block = block.seqno);
+        tracing::info!(prev_seqno = block.prev_seqno);
     }
 
     Ok(())

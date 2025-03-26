@@ -12,6 +12,7 @@ license.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 arc-swap = { workspace = true }
+async-trait = { workspace = true }
 everscale-types = { workspace = true, features = ["tycho", "models", "base64", "serde"] }
 parking_lot = { workspace = true }
 reqwest = { workspace = true, features = ["http2", "json", "rustls-tls"] }
@@ -24,6 +25,8 @@ tracing-subscriber = { workspace = true }
 
 proof-api-util = { workspace = true }
 ton-lite-client = { workspace = true }
+
+tycho-block-util = { workspace = true }
 
 [lints]
 workspace = true

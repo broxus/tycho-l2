@@ -16,6 +16,7 @@ ahash = "0.8.11"
 aide = { version = "0.13.4", features = ["axum", "scalar"] }
 anyhow = "1.0"
 arc-swap = "1.7.1"
+async-trait = "0.1"
 axum = "0.7"
 bytes = "1.10.1"
 bytesize = "2.0.1"
