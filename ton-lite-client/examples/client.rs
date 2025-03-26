@@ -3,6 +3,9 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use everscale_types::cell::HashBytes;
+use everscale_types::merkle::MerkleProof;
+use everscale_types::models::BlockchainConfig;
+use everscale_types::prelude::Load;
 use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
 use ton_lite_client::{LiteClient, LiteClientConfig};
 
@@ -42,6 +45,22 @@ async fn main() -> Result<()> {
         // Block proof
         let proof = client.get_block_proof(&key_block_id).await?;
         tracing::info!(?proof);
+
+        let proof = everscale_types::boc::Boc::decode(&proof.config_proof)?
+            .parse_exotic::<MerkleProof>()?;
+
+        let block = proof
+            .cell
+            .parse::<<TonModels as BlockchainModels>::Block>()?;
+
+        if let Some(custom) = block.load_extra()?.custom {
+            let mut slice = custom.as_slice()?;
+            slice.only_last(256, 1)?;
+
+            let config = BlockchainConfig::load_from(&mut slice)?;
+            let v_set = config.get_current_validator_set()?;
+            tracing::info!(?v_set);
+        }
     }
 
     Ok(())

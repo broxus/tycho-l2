@@ -150,10 +150,10 @@ where
 }
 
 /// Prepares a signatures dict with validator indices as keys.
-pub fn prepare_signatures(
-    signatures: Dict<u16, BlockSignature>,
-    vset: &ValidatorSet,
-) -> Result<Cell, Error> {
+pub fn prepare_signatures<I>(signatures: I, vset: &ValidatorSet) -> Result<Cell, Error>
+where
+    I: IntoIterator<Item = Result<BlockSignature, Error>>,
+{
     struct PlainSignature([u8; 64]);
 
     impl Store for PlainSignature {
@@ -164,7 +164,7 @@ pub fn prepare_signatures(
     }
 
     let mut block_signatures = HashMap::default();
-    for entry in signatures.values() {
+    for entry in signatures {
         let entry = entry?;
         let res = block_signatures.insert(entry.node_id_short, entry.signature);
         if res.is_some() {

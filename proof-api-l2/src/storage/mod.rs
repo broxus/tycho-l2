@@ -401,7 +401,7 @@ impl ProofStorage {
                 let vset = vset.clone();
                 let (signatures_tx, signatures_rx) = tokio::sync::oneshot::channel();
                 rayon::spawn(move || {
-                    let res = block::prepare_signatures(signatures, &vset)
+                    let res = block::prepare_signatures(signatures.values(), &vset)
                         .map(|cell| encode_signatures(vset.utime_since, cell));
 
                     signatures_tx.send(res).ok();
