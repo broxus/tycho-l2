@@ -2,7 +2,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use everscale_types::boc::Boc;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockIdShort, BlockchainConfig, ShardIdent};
+use everscale_types::models::{
+    BlockIdShort, BlockchainConfig, OptionalAccount, ShardIdent, StdAddr,
+};
 use everscale_types::prelude::Load;
 use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
 use ton_lite_client::{proto, LiteClient};
@@ -72,7 +74,27 @@ impl BlockchainClient for LiteClient {
         })
     }
 
-    async fn get_last_utime(&self) -> Result<u32> {
+    async fn get_blockchain_config(&self) -> Result<BlockchainConfig> {
+        let mc_block_id = self.get_last_mc_block_id().await?;
+        let config = self.get_config(&mc_block_id).await?;
+
+        let config_proof = Boc::decode(&config.config_proof)?.parse_exotic::<MerkleProof>()?;
+        let blockchain_config = config_proof.cell.parse::<BlockchainConfig>()?;
+
+        Ok(blockchain_config)
+    }
+
+    async fn get_account_state(&self, account: StdAddr) -> Result<OptionalAccount> {
+        let mc_block_id = self.get_last_mc_block_id().await?;
+        let account_state = self.get_account(mc_block_id, account).await?;
+
+        let cell = Boc::decode(&account_state.state)?;
+        let account = cell.parse::<OptionalAccount>()?;
+
+        Ok(account)
+    }
+
+    async fn get_vset_last_utime(&self) -> Result<u32> {
         // TODO:
         Ok(1742229256)
     }

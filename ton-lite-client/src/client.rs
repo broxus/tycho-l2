@@ -124,6 +124,14 @@ impl LiteClient {
         .await
     }
 
+    pub async fn get_config(&self, block_id: &BlockId) -> Result<proto::ConfigInfo> {
+        self.query::<_, proto::ConfigInfo>(proto::rpc::GetConfigAll {
+            mode: (),
+            id: *block_id,
+        })
+        .await
+    }
+
     pub async fn get_transactions(
         &self,
         account: &StdAddr,
@@ -136,6 +144,18 @@ impl LiteClient {
             lt,
             count,
             hash: hash.0,
+        })
+        .await
+    }
+
+    pub async fn get_account(
+        &self,
+        block_id: BlockId,
+        account: StdAddr,
+    ) -> Result<proto::AccountState> {
+        self.query::<_, proto::AccountState>(proto::rpc::GetAccountState {
+            id: block_id,
+            account,
         })
         .await
     }

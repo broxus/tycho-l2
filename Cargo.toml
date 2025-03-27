@@ -62,6 +62,8 @@ tycho-network = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7f
 tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
 tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
 
+nekoton-abi = { git = "ssh://git@github.com/broxus/tycho-nekoton.git" }
+
 # local deps
 proof-api-util = { path = "./util" }
 ton-lite-client = { path = "./ton-lite-client" }

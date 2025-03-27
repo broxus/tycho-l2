@@ -153,6 +153,18 @@ pub struct TransactionList {
 }
 
 #[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.accountState", scheme = "proto.tl")]
+pub struct AccountState {
+    #[tl(with = "tl_block_id_full")]
+    pub id: BlockId,
+    #[tl(with = "tl_block_id_full")]
+    pub shardblk: BlockId,
+    pub shard_proof: Vec<u8>,
+    pub proof: Vec<u8>,
+    pub state: Vec<u8>,
+}
+
+#[derive(Debug, TlRead)]
 #[tl(boxed, id = "liteServer.error", scheme = "proto.tl")]
 pub struct Error {
     pub code: i32,
@@ -247,8 +259,6 @@ pub mod rpc {
         pub mode: (),
         #[tl(with = "tl_block_id_full")]
         pub id: BlockId,
-        #[tl(flags_bit = "mode.4")]
-        pub with_validator_set: Option<()>,
     }
 
     #[derive(Clone, Debug, TlWrite)]
@@ -259,6 +269,15 @@ pub mod rpc {
         pub account: StdAddr,
         pub lt: u64,
         pub hash: [u8; 32],
+    }
+
+    #[derive(Clone, Debug, TlWrite)]
+    #[tl(boxed, id = "liteServer.getAccountState", scheme = "proto.tl")]
+    pub struct GetAccountState {
+        #[tl(with = "tl_block_id_full")]
+        pub id: BlockId,
+        #[tl(with = "tl_account_id")]
+        pub account: StdAddr,
     }
 }
 

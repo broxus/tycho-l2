@@ -2,12 +2,12 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use everscale_types::boc::{Boc, BocRepr};
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockSignatures, BlockchainConfig};
+use everscale_types::models::{BlockSignatures, BlockchainConfig, OptionalAccount, StdAddr};
 use everscale_types::prelude::Load;
 use proof_api_util::block::{BaseBlockProof, BlockchainBlock, BlockchainModels, TychoModels};
 
 use crate::stream::{BlockchainClient, KeyBlockData};
-use crate::utils::jrpc_client::JrpcClient;
+use crate::utils::jrpc_client::{AccountStateResponse, JrpcClient};
 
 #[async_trait]
 impl BlockchainClient for JrpcClient {
@@ -58,7 +58,22 @@ impl BlockchainClient for JrpcClient {
         })
     }
 
-    async fn get_last_utime(&self) -> Result<u32> {
+    async fn get_blockchain_config(&self) -> Result<BlockchainConfig> {
+        let config = self.get_config().await?;
+        Ok(config.config)
+    }
+
+    async fn get_account_state(&self, account: StdAddr) -> Result<OptionalAccount> {
+        let state = self.get_account(&account).await?;
+        match state {
+            AccountStateResponse::Exists { account, .. } => Ok(OptionalAccount(Some(*account))),
+            AccountStateResponse::Unchanged { .. } | AccountStateResponse::NotExists { .. } => {
+                Ok(OptionalAccount::EMPTY)
+            }
+        }
+    }
+
+    async fn get_vset_last_utime(&self) -> Result<u32> {
         // TODO:
         Ok(1742914681)
     }
