@@ -5,15 +5,12 @@ use std::time::Duration;
 use anyhow::Result;
 use arc_swap::ArcSwapOption;
 use everscale_types::boc::Boc;
-use everscale_types::cell::HashBytes;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
-    BlockIdShort, BlockSignature, BlockchainConfig, ShardIdent, Signature,
-};
+use everscale_types::models::{BlockIdShort, BlockchainConfig, ShardIdent};
 use everscale_types::prelude::Load;
 use parking_lot::Mutex;
 use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
-use ton_lite_client::LiteClient;
+use ton_lite_client::{proto, LiteClient};
 
 use crate::stream::KeyBlockInfo;
 
@@ -142,7 +139,17 @@ async fn get_key_block_info(client: &LiteClient, key_block_seqno: u32) -> Result
 
     let key_block_id = client.lookup_block(key_block_short_id).await?;
 
-    let key_block_proof = client.get_block_proof(&key_block_id).await?;
+    // TODO: Check signatures.
+    let key_block_proof = 'proof: {
+        let partial = client.get_block_proof(&key_block_id, None).await?;
+        for step in partial.steps {
+            if let proto::BlockLink::BlockLinkForward(proof) = step {
+                break 'proof proof;
+            }
+        }
+
+        anyhow::bail!("proof not found");
+    };
 
     let proof = Boc::decode(&key_block_proof.config_proof)?.parse_exotic::<MerkleProof>()?;
 
@@ -163,21 +170,7 @@ async fn get_key_block_info(client: &LiteClient, key_block_seqno: u32) -> Result
     let blockchain_config = BlockchainConfig::load_from(&mut slice)?;
     let v_set = blockchain_config.get_current_validator_set()?;
 
-    let signatures = key_block_proof
-        .signatures
-        .signatures
-        .into_iter()
-        .map(|item| {
-            Ok(BlockSignature {
-                node_id_short: HashBytes(item.node_id_short),
-                signature: Signature(
-                    item.signature
-                        .try_into()
-                        .map_err(|_| TonBlockStreamError::InvalidSignatureLength)?,
-                ),
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let signatures = key_block_proof.signatures.signatures;
 
     Ok(KeyBlockInfo {
         seqno: key_block_seqno,

@@ -1,4 +1,4 @@
-use everscale_types::models::{BlockId, BlockIdShort, StdAddr};
+use everscale_types::models::{BlockId, BlockIdShort, BlockSignature, StdAddr};
 use tl_proto::{IntermediateBytes, TlRead, TlWrite};
 
 #[derive(TlWrite)]
@@ -110,18 +110,27 @@ pub struct BlockLinkForward {
 }
 
 #[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.shardBlockProof", scheme = "proto.tl")]
+pub struct ShardBlockProof {
+    #[tl(with = "tl_block_id_full")]
+    pub mc_block_id: BlockId,
+    pub links: Vec<ShardBlockLink>,
+}
+
+#[derive(Debug, TlRead)]
+pub struct ShardBlockLink {
+    #[tl(with = "tl_block_id_full")]
+    pub block_id: BlockId,
+    pub proof: Vec<u8>,
+}
+
+#[derive(Debug, TlRead)]
 #[tl(boxed, id = "liteServer.signatureSet", scheme = "proto.tl")]
 pub struct SignatureSet {
     pub validator_set_hash: u32,
     pub catchain_seqno: u32,
-    pub signatures: Vec<Signature>,
-}
-
-#[derive(Debug, TlRead)]
-// #[tl(boxed, id = "liteServer.signature", scheme = "proto.tl")]
-pub struct Signature {
-    pub node_id_short: [u8; 32],
-    pub signature: Vec<u8>,
+    #[tl(with = "tl_vec_signature")]
+    pub signatures: Vec<BlockSignature>,
 }
 
 #[derive(Debug, TlRead)]
@@ -222,6 +231,13 @@ pub mod rpc {
         pub known_block: BlockId,
         #[tl(flags_bit = "mode.0", with = "tl_block_id_full")]
         pub target_block: Option<BlockId>,
+    }
+
+    #[derive(Clone, Debug, TlRead, TlWrite)]
+    #[tl(boxed, id = "liteServer.getShardBlockProof", scheme = "proto.tl")]
+    pub struct GetShardBlockProof {
+        #[tl(with = "tl_block_id_full")]
+        pub block_id: BlockId,
     }
 
     #[derive(Clone, Debug, TlWrite)]
@@ -368,5 +384,60 @@ pub mod tl_account_id {
         let address = HashBytes(<[u8; 32]>::read_from(packet)?);
 
         Ok(StdAddr::new(workchain, address))
+    }
+}
+
+pub mod tl_vec_signature {
+    use everscale_types::models::BlockSignature;
+    use tl_proto::{TlPacket, TlResult};
+
+    use super::*;
+
+    pub fn size_hint(items: &[BlockSignature]) -> usize {
+        4 + items.iter().map(tl_signature::size_hint).sum::<usize>()
+    }
+
+    pub fn write<P: TlPacket>(items: &[BlockSignature], packet: &mut P) {
+        (items.len() as u32).write_to(packet);
+        for item in items {
+            tl_signature::write(item, packet);
+        }
+    }
+
+    pub fn read(packet: &mut &[u8]) -> TlResult<Vec<BlockSignature>> {
+        let len = u32::read_from(packet)?;
+        let mut res = Vec::with_capacity(len.min(64) as usize);
+        for _ in 0..len {
+            let block_id = tl_signature::read(packet)?;
+            res.push(block_id);
+        }
+        Ok(res)
+    }
+}
+
+pub mod tl_signature {
+    use everscale_types::cell::HashBytes;
+    use everscale_types::models::{BlockSignature, Signature};
+    use tl_proto::{TlError, TlPacket, TlRead, TlResult, TlWrite};
+
+    pub fn size_hint(value: &BlockSignature) -> usize {
+        32 + value.signature.0.as_slice().max_size_hint()
+    }
+
+    pub fn write<P: TlPacket>(value: &BlockSignature, packet: &mut P) {
+        value.node_id_short.0.write_to(packet);
+        value.signature.0.as_slice().write_to(packet);
+    }
+
+    pub fn read(packet: &mut &[u8]) -> TlResult<BlockSignature> {
+        let node_id_short = HashBytes(<[u8; 32]>::read_from(packet)?);
+        let Ok(signature) = <&[u8]>::read_from(packet)?.try_into() else {
+            return Err(TlError::InvalidData);
+        };
+
+        Ok(BlockSignature {
+            node_id_short,
+            signature: Signature(signature),
+        })
     }
 }

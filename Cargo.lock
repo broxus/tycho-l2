@@ -1992,10 +1992,15 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "everscale-crypto",
  "everscale-types",
  "proof-api-util",
+ "serde_json",
  "tikv-jemallocator",
+ "tokio",
  "ton-lite-client",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

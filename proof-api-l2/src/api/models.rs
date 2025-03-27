@@ -4,7 +4,6 @@ use everscale_types::models::{StdAddr, StdAddrFormat};
 use schemars::schema::Schema;
 use schemars::{JsonSchema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
-use tycho_util::serde_helpers;
 
 /// General error response.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

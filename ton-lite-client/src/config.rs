@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
+use std::path::Path;
 use std::time::Duration;
 
+use anyhow::{Context, Result};
 use everscale_crypto::ed25519;
 use serde::{Deserialize, Serialize};
 use tycho_util::serde_helpers;
@@ -45,12 +47,10 @@ pub struct TonGlobalConfig {
     pub liteservers: Vec<NodeInfo>,
 }
 
-impl IntoIterator for TonGlobalConfig {
-    type IntoIter = std::vec::IntoIter<NodeInfo>;
-    type Item = NodeInfo;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.liteservers.into_iter()
+impl TonGlobalConfig {
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let data = std::fs::read(path).context("failed to read global config")?;
+        serde_json::from_slice(&data).context("failed to deserialize global config")
     }
 }
 

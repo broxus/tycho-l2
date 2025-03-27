@@ -101,40 +101,46 @@ impl LiteClient {
         Ok(block_header.id)
     }
 
-    pub async fn get_block_proof(&self, block_id: &BlockId) -> Result<proto::BlockLinkForward> {
-        let block_proof = self
-            .query::<_, proto::PartialBlockProof>(proto::rpc::GetBlockProof {
-                mode: (),
-                known_block: *block_id,
-                target_block: None,
-            })
-            .await?;
+    pub async fn get_block_proof(
+        &self,
+        block_id: &BlockId,
+        target_block: Option<&BlockId>,
+    ) -> Result<proto::PartialBlockProof> {
+        self.query::<_, proto::PartialBlockProof>(proto::rpc::GetBlockProof {
+            mode: (),
+            known_block: *block_id,
+            target_block: target_block.copied(),
+        })
+        .await
+    }
 
-        if let Some(proto::BlockLink::BlockLinkForward(proof)) =
-            block_proof.steps.into_iter().next()
-        {
-            return Ok(proof);
-        }
-
-        Err(LiteClientError::InvalidBlockProof.into())
+    pub async fn get_shard_block_proof(
+        &self,
+        block_id: &BlockId,
+    ) -> Result<proto::ShardBlockProof> {
+        self.query::<_, proto::ShardBlockProof>(proto::rpc::GetShardBlockProof {
+            block_id: *block_id,
+        })
+        .await
     }
 
     pub async fn get_transactions(
         &self,
         account: &StdAddr,
         lt: u64,
+        hash: &HashBytes,
         count: u32,
     ) -> Result<proto::TransactionList> {
         self.query::<_, proto::TransactionList>(proto::rpc::GetTransactions {
             account: account.clone(),
             lt,
             count,
-            hash: [0; 32],
+            hash: hash.0,
         })
         .await
     }
 
-    async fn query<Q, R>(&self, query: Q) -> Result<R>
+    pub async fn query<Q, R>(&self, query: Q) -> Result<R>
     where
         Q: TlWrite<Repr = tl_proto::Boxed>,
         for<'a> R: TlRead<'a>,
@@ -210,6 +216,8 @@ impl LiteClient {
                     continue;
                 }
             };
+
+            tracing::debug!(id, attempts, error_count, addr = %connection.address, "query failed: {e:?}");
 
             id = (id + 1) % connection_count;
             if matches!(&e, LiteClientError::Timeout) {
@@ -305,8 +313,6 @@ pub enum LiteClientError {
     ErrorResponse(Box<str>),
     #[error("query failed")]
     QueryFailed(#[source] TcpAdnlError),
-    #[error("invalid block proof")]
-    InvalidBlockProof,
     #[error("timeout")]
     Timeout,
 }
