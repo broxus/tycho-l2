@@ -1,7 +1,12 @@
+use std::net::{Ipv4Addr, SocketAddrV4};
+use std::str::FromStr;
+
 use anyhow::Result;
-// use everscale_types::merkle::MerkleProof;
-// use everscale_types::models::BlockchainConfig;
-// use everscale_types::prelude::Load;
+use everscale_types::boc::Boc;
+use everscale_types::cell::HashBytes;
+use everscale_types::merkle::MerkleProof;
+use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
+use everscale_types::prelude::Load;
 use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
 use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
 
@@ -57,6 +62,35 @@ async fn main() -> Result<()> {
         //     let v_set = config.get_current_validator_set()?;
         //     tracing::info!(?v_set);
         // }
+    }
+
+    // Get blockchain config
+    {
+        let mc_block_id = client.get_last_mc_block_id().await?;
+        tracing::info!(?mc_block_id);
+
+        let config = client.get_config(&mc_block_id).await?;
+
+        let proof = Boc::decode(&config.config_proof)?.parse_exotic::<MerkleProof>()?;
+
+        let config = proof.cell.parse::<BlockchainConfig>()?;
+        tracing::info!(?config);
+    }
+
+    // Get account state
+    {
+        // Get mc info
+        let mc_block_id = client.get_last_mc_block_id().await?;
+        tracing::info!(?mc_block_id);
+
+        let addr = StdAddr::from_str(
+            "0:69884128d07de140f313e1238557261f4e5f849315df3eadc7b56961356bdf61",
+        )?;
+        let state = client.get_account(mc_block_id, addr).await?;
+        let cell = Boc::decode(&state.state)?;
+
+        let account = cell.parse::<OptionalAccount>()?;
+        tracing::info!(?account);
     }
 
     Ok(())

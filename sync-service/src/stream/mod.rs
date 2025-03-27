@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
+use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
 use parking_lot::Mutex;
 
 pub mod ton;
@@ -15,11 +16,16 @@ pub trait BlockchainClient {
 
     async fn get_key_block(&self, seqno: u32) -> anyhow::Result<KeyBlockData>;
 
-    async fn get_last_utime(&self) -> anyhow::Result<u32>;
+    async fn get_blockchain_config(&self) -> anyhow::Result<BlockchainConfig>;
+
+    async fn get_account_state(&self, account: StdAddr) -> anyhow::Result<OptionalAccount>;
+
+    async fn get_vset_last_utime(&self) -> anyhow::Result<u32>;
 }
 
 pub struct BlockStream<T> {
     client: T,
+    config: BlockchainConfig,
     cache: Mutex<BTreeMap<u32, KeyBlockData>>,
     last_known_utime_since: ArcSwapOption<u32>,
     polling_timeout: Duration,
@@ -27,14 +33,17 @@ pub struct BlockStream<T> {
 }
 
 impl<T: BlockchainClient> BlockStream<T> {
-    pub fn new(client: T) -> Self {
-        Self {
+    pub async fn new(client: T) -> anyhow::Result<Self> {
+        let config = client.get_blockchain_config().await?;
+
+        Ok(Self {
             client,
+            config,
             cache: Default::default(),
             last_known_utime_since: Default::default(),
             polling_timeout: Duration::from_secs(30),
             error_timeout: Duration::from_secs(1),
-        }
+        })
     }
 
     pub async fn next_block(&self) -> Option<KeyBlockData> {
@@ -56,7 +65,7 @@ impl<T: BlockchainClient> BlockStream<T> {
         'polling: loop {
             let last_known_utime_since = match self.last_known_utime_since.load_full() {
                 Some(utime_since) => *utime_since,
-                None => match self.client.get_last_utime().await {
+                None => match self.client.get_vset_last_utime().await {
                     Ok(utime_since) => utime_since,
                     Err(e) => {
                         tracing::error!("failed to get last key block: {e}");
