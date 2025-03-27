@@ -1,11 +1,12 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::Duration;
-
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
+use nekoton_abi::execution_context::ExecutionContextBuilder;
 use parking_lot::Mutex;
+use std::collections::BTreeMap;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub mod ton;
 pub mod tycho;
@@ -19,8 +20,6 @@ pub trait BlockchainClient {
     async fn get_blockchain_config(&self) -> anyhow::Result<BlockchainConfig>;
 
     async fn get_account_state(&self, account: StdAddr) -> anyhow::Result<OptionalAccount>;
-
-    async fn get_vset_last_utime(&self) -> anyhow::Result<u32>;
 }
 
 pub struct BlockStream<T> {
@@ -65,7 +64,7 @@ impl<T: BlockchainClient> BlockStream<T> {
         'polling: loop {
             let last_known_utime_since = match self.last_known_utime_since.load_full() {
                 Some(utime_since) => *utime_since,
-                None => match self.client.get_vset_last_utime().await {
+                None => match self.get_current_epoch_since().await {
                     Ok(utime_since) => utime_since,
                     Err(e) => {
                         tracing::error!("failed to get last key block: {e}");
@@ -136,6 +135,31 @@ impl<T: BlockchainClient> BlockStream<T> {
             }
         }
     }
+
+    async fn get_current_epoch_since(&self) -> anyhow::Result<u32> {
+        let addr = StdAddr::from_str(
+            "0:457c0ac35986d4e056deee8428abe27294f97c3266dc9062d689a07c8e967164",
+        )?; // TODO: move to config
+
+        let account = self
+            .client
+            .get_account_state(addr)
+            .await?
+            .0
+            .ok_or(BlockStreamError::AccountNotFound)?;
+
+        let context = ExecutionContextBuilder::new(&account)
+            .with_config(self.config.clone())
+            .build()?;
+
+        let result = context.run_getter("get_state_short", &[])?;
+        if !result.success {
+            return Err(BlockStreamError::VmExecutionFailed(result.exit_code).into());
+        }
+
+        let current_epoch_since: u32 = result.stack[0].try_as_int()?.try_into()?;
+        Ok(current_epoch_since)
+    }
 }
 
 #[derive(Debug)]
@@ -143,4 +167,12 @@ pub struct KeyBlockData {
     pub prev_seqno: u32,
     pub v_set: everscale_types::models::ValidatorSet,
     pub signatures: Vec<everscale_types::models::BlockSignature>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum BlockStreamError {
+    #[error("account state not found")]
+    AccountNotFound,
+    #[error("vm execution failed: {0}")]
+    VmExecutionFailed(i32),
 }

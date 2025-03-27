@@ -93,11 +93,6 @@ impl BlockchainClient for LiteClient {
 
         Ok(account)
     }
-
-    async fn get_vset_last_utime(&self) -> Result<u32> {
-        // TODO:
-        Ok(1742229256)
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
