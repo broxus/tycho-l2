@@ -1,5 +1,5 @@
 pub use self::client::{LiteClient, LiteClientError};
-pub use self::config::LiteClientConfig;
+pub use self::config::{LiteClientConfig, NodeInfo, TonGlobalConfig};
 
 mod client;
 mod config;

@@ -13,6 +13,7 @@ license.workspace = true
 aes = { workspace = true }
 ahash = { workspace = true }
 anyhow = { workspace = true }
+arc-swap = { workspace = true }
 ctr = { workspace = true }
 dashmap = { workspace = true }
 futures-util = { workspace = true }
@@ -33,6 +34,7 @@ tycho-util = { workspace = true }
 
 [dev-dependencies]
 proof-api-util = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

@@ -148,7 +148,7 @@ pub struct TransactionList {
 pub struct Error {
     pub code: i32,
     #[tl(with = "tl_string")]
-    pub message: String,
+    pub message: Box<str>,
 }
 
 #[derive(Debug, TlWrite)]
@@ -249,9 +249,9 @@ pub mod rpc {
 mod tl_string {
     use tl_proto::{TlRead, TlResult};
 
-    pub fn read(packet: &mut &[u8]) -> TlResult<String> {
+    pub fn read(packet: &mut &[u8]) -> TlResult<Box<str>> {
         let bytes = <&[u8]>::read_from(packet)?;
-        Ok(String::from_utf8_lossy(bytes).into_owned())
+        Ok(String::from_utf8_lossy(bytes).into())
     }
 }
 

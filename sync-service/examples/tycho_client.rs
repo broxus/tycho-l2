@@ -1,5 +1,4 @@
 use anyhow::Result;
-
 use sync_service::utils::jrpc_client::JrpcClient;
 
 #[tokio::main]

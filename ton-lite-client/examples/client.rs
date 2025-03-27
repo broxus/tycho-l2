@@ -1,22 +1,19 @@
-use std::net::{Ipv4Addr, SocketAddrV4};
-
 use anyhow::Result;
-use everscale_types::cell::HashBytes;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::BlockchainConfig;
 use everscale_types::prelude::Load;
 use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
-use ton_lite_client::{LiteClient, LiteClientConfig};
+use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let server_pubkey = "aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=".parse::<HashBytes>()?;
-    let server_address = SocketAddrV4::new(Ipv4Addr::from_bits(-2018135749i32 as u32), 53312);
+    let global_config: TonGlobalConfig =
+        serde_json::from_str(include_str!("ton-global-config.json"))?;
 
-    let config = LiteClientConfig::from_addr_and_keys(server_address, server_pubkey);
-    let client = LiteClient::new(&config).await?;
+    let config = LiteClientConfig::default();
+    let client = LiteClient::new(config, global_config);
 
     // Get last key block proof
     {

@@ -1,30 +1,56 @@
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use arc_swap::{ArcSwapAny, ArcSwapOption};
+use everscale_crypto::ed25519;
 use everscale_types::models::{BlockId, BlockIdShort, StdAddr};
 use everscale_types::prelude::*;
 use tl_proto::{TlRead, TlWrite};
+use tokio::sync::Notify;
+use tycho_util::futures::JoinTask;
 
-use crate::config::LiteClientConfig;
+use crate::config::{LiteClientConfig, NodeInfo};
 use crate::proto;
 use crate::tcp_adnl::{TcpAdnl, TcpAdnlError};
 
 #[derive(Clone)]
 pub struct LiteClient {
-    tcp_adnl: TcpAdnl,
-    query_timeout: Duration,
+    inner: Arc<Inner>,
 }
 
 impl LiteClient {
-    pub async fn new(config: &LiteClientConfig) -> Result<Self> {
-        let fut = TcpAdnl::connect(config.server_address, config.server_pubkey);
-        Ok(Self {
-            tcp_adnl: match tokio::time::timeout(config.connection_timeout, fut).await {
-                Ok(res) => res.map_err(LiteClientError::ConnectionFailed)?,
-                Err(_) => return Err(LiteClientError::Timeout.into()),
-            },
-            query_timeout: config.query_timeout,
-        })
+    pub fn new<I>(config: LiteClientConfig, nodes: I) -> Self
+    where
+        I: IntoIterator<Item = NodeInfo>,
+    {
+        let state = Arc::new(ActiveState {
+            any_connected: Notify::new(),
+            active_count: AtomicUsize::new(0),
+            connections: nodes
+                .into_iter()
+                .map(|node| ConnectionState {
+                    address: node.address,
+                    pubkey: node.pubkey,
+                    client: ArcSwapAny::new(None),
+                })
+                .collect(),
+            connection_timeout: config.connection_timeout,
+            reconnect_interval: config.reconnect_interval,
+        });
+
+        let handles = spawn_connections(&state);
+
+        Self {
+            inner: Arc::new(Inner {
+                query_timeout: config.query_timeout,
+                state,
+                counter: AtomicUsize::new(0),
+                _handles: handles,
+            }),
+        }
     }
 
     pub async fn get_version(&self) -> Result<u32> {
@@ -84,11 +110,10 @@ impl LiteClient {
             })
             .await?;
 
-        for block_link in block_proof.steps {
-            match block_link {
-                proto::BlockLink::BlockLinkBack { .. } => break,
-                proto::BlockLink::BlockLinkForward(proof) => return Ok(proof),
-            }
+        if let Some(proto::BlockLink::BlockLinkForward(proof)) =
+            block_proof.steps.into_iter().next()
+        {
+            return Ok(proof);
         }
 
         Err(LiteClientError::InvalidBlockProof.into())
@@ -116,7 +141,7 @@ impl LiteClient {
     {
         enum QueryResponse<T> {
             Ok(T),
-            Err(String),
+            Err(Box<str>),
         }
 
         impl<'a, R> tl_proto::TlRead<'a> for QueryResponse<R>
@@ -125,6 +150,7 @@ impl LiteClient {
         {
             type Repr = tl_proto::Boxed;
 
+            #[allow(clippy::useless_asref)]
             fn read_from(packet: &mut &'a [u8]) -> tl_proto::TlResult<Self> {
                 let constructor = { <u32 as TlRead>::read_from(&mut packet.as_ref())? };
                 if constructor == proto::Error::TL_ID {
@@ -136,20 +162,147 @@ impl LiteClient {
             }
         }
 
-        let fut = self.tcp_adnl.query(query);
-        match tokio::time::timeout(self.query_timeout, fut).await {
-            Ok(Ok(QueryResponse::Ok(data))) => Ok(data),
-            Ok(Ok(QueryResponse::Err(message))) => Err(anyhow::Error::msg(message)),
-            Ok(Err(e)) => Err(LiteClientError::QueryFailed(e).into()),
-            Err(_) => Err(LiteClientError::Timeout.into()),
+        const MAX_ATTEMPTS: usize = 200;
+        const MAX_ERRORS: usize = 20;
+
+        let query = tl_proto::serialize(query);
+        let query = tl_proto::RawBytes::<tl_proto::Boxed>::new(&query);
+
+        let state = self.inner.state.as_ref();
+        let connection_count = state.connections.len();
+        if connection_count == 0 {
+            return Err(LiteClientError::NoConnections.into());
+        }
+
+        let mut id = self.inner.counter.fetch_add(1, Ordering::Relaxed) % connection_count;
+
+        let mut attempts = 0usize;
+        let mut error_count = 0usize;
+        loop {
+            let connection = &state.connections[id];
+            tracing::debug!(id, attempts, error_count, addr = %connection.address, "trying to send query");
+
+            let e = match connection.client.load_full() {
+                // Client is ready.
+                Some(client) => {
+                    let fut = client.query(query);
+
+                    match tokio::time::timeout(self.inner.query_timeout, fut).await {
+                        Ok(Ok(QueryResponse::Ok(data))) => break Ok(data),
+                        Ok(Ok(QueryResponse::Err(e))) => LiteClientError::ErrorResponse(e),
+                        Ok(Err(e)) => LiteClientError::QueryFailed(e),
+                        Err(_) => LiteClientError::Timeout,
+                    }
+                }
+                // Client is still connecting.
+                None => {
+                    id = (id + 1) % connection_count;
+                    attempts += 1;
+
+                    if attempts > MAX_ATTEMPTS {
+                        return Err(LiteClientError::NoConnections.into());
+                    }
+
+                    if attempts >= connection_count {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+
+                    continue;
+                }
+            };
+
+            id = (id + 1) % connection_count;
+            if matches!(&e, LiteClientError::Timeout) {
+                continue;
+            }
+
+            error_count += 1;
+            if error_count > MAX_ERRORS {
+                return Err(e.into());
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 }
 
+struct Inner {
+    query_timeout: Duration,
+    state: Arc<ActiveState>,
+    counter: AtomicUsize,
+    _handles: Vec<JoinTask<()>>,
+}
+
+struct ConnectionState {
+    address: SocketAddr,
+    pubkey: ed25519::PublicKey,
+    client: ArcSwapOption<TcpAdnl>,
+}
+
+struct ActiveState {
+    any_connected: Notify,
+    active_count: AtomicUsize,
+    connections: Vec<ConnectionState>,
+    connection_timeout: Duration,
+    reconnect_interval: Duration,
+}
+
+fn spawn_connections(state: &Arc<ActiveState>) -> Vec<JoinTask<()>> {
+    let mut tasks = Vec::new();
+
+    for i in 0..state.connections.len() {
+        let state = state.clone();
+        tasks.push(JoinTask::new(async move {
+            let connection = &state.connections[i];
+
+            loop {
+                'connection: {
+                    tracing::debug!(addr = ?connection.address, "connecting to lite client");
+
+                    let fut = TcpAdnl::connect(connection.address, connection.pubkey);
+                    let client = match tokio::time::timeout(state.connection_timeout, fut).await {
+                        Ok(res) => match res {
+                            Ok(client) => Arc::new(client),
+                            Err(e) => {
+                                tracing::debug!(
+                                    addr = ?connection.address,
+                                    "connection failed: {e:?}",
+                                );
+                                break 'connection;
+                            }
+                        },
+                        Err(_) => {
+                            tracing::debug!(addr = ?connection.address, "connection timeout");
+                            break 'connection;
+                        }
+                    };
+
+                    connection.client.store(Some(client.clone()));
+
+                    state.active_count.fetch_add(1, Ordering::Release);
+                    state.any_connected.notify_waiters();
+                    client.wait_closed().await;
+                    state.active_count.fetch_sub(1, Ordering::Release);
+
+                    connection.client.store(None);
+
+                    tracing::debug!(addr = ?connection.address, "connection closed");
+                }
+
+                tokio::time::sleep(state.reconnect_interval).await;
+            }
+        }));
+    }
+
+    tasks
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum LiteClientError {
-    #[error("connection failed")]
-    ConnectionFailed(#[source] TcpAdnlError),
+    #[error("no connections available")]
+    NoConnections,
+    #[error("query failed: {0}")]
+    ErrorResponse(Box<str>),
     #[error("query failed")]
     QueryFailed(#[source] TcpAdnlError),
     #[error("invalid block proof")]

@@ -1,17 +1,16 @@
+use std::future::Future;
 use std::pin::pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use ctr::cipher::{KeyIvInit, StreamCipher};
 use everscale_crypto::ed25519;
-use everscale_types::cell::HashBytes;
 use rand::{Rng, RngCore};
 use sha2::Digest;
 use tl_proto::{IntermediateBytes, TlRead, TlWrite};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
-use tokio::sync::futures::Notified;
 use tokio::sync::{Mutex, Notify};
 use tycho_util::futures::JoinTask;
 use tycho_util::sync::CancellationFlag;
@@ -21,13 +20,15 @@ use crate::proto;
 
 mod queries_cache;
 
-#[derive(Clone)]
 pub struct TcpAdnl {
-    state: Arc<SharedState>,
+    state: SharedState,
 }
 
 impl TcpAdnl {
-    pub async fn connect<S>(address: S, pubkey: HashBytes) -> Result<Self, TcpAdnlError>
+    pub async fn connect<S>(
+        address: S,
+        server_pubkey: ed25519::PublicKey,
+    ) -> Result<Self, TcpAdnlError>
     where
         S: tokio::net::ToSocketAddrs,
     {
@@ -48,8 +49,6 @@ impl TcpAdnl {
             generic_array::GenericArray::from_slice(&initial_buffer[80..96]),
         );
 
-        let server_pubkey =
-            ed25519::PublicKey::from_bytes(pubkey.0).ok_or(TcpAdnlError::InvalidPubkey)?;
         let client_secret = rand::thread_rng().gen::<ed25519::SecretKey>();
 
         build_handshake_packet(&server_pubkey, &client_secret, &mut initial_buffer);
@@ -68,7 +67,7 @@ impl TcpAdnl {
             .await
             .map_err(TcpAdnlError::ConnectionError)?;
 
-        let state = Arc::new(SharedState {
+        let state = SharedState {
             queries_cache,
             query_id: Default::default(),
             sender: Arc::new(Mutex::new(Sender {
@@ -77,7 +76,7 @@ impl TcpAdnl {
             })),
             closed,
             _receiver: receiver,
-        });
+        };
 
         Ok(Self { state })
     }
@@ -86,10 +85,16 @@ impl TcpAdnl {
         self.state.closed.is_closed()
     }
 
-    /// Returns `None` if already closed,
-    /// otherwise returns a notify of the closing event.
-    pub fn closed_notify(&self) -> Option<Notified<'_>> {
-        self.state.closed.closed_notify()
+    pub fn wait_closed(&self) -> impl Future<Output = ()> + Send + Sync + 'static {
+        let closed = self.state.closed.clone();
+        async move {
+            // NOTE: Aquire `Notified` future before the flag check.
+            let notified = closed.inner.notify.notified();
+
+            if !closed.is_closed() {
+                notified.await;
+            }
+        }
     }
 
     pub async fn query<Q, R>(&self, query: Q) -> Result<R, TcpAdnlError>
@@ -139,8 +144,8 @@ impl TcpAdnl {
         let query = pin!(pending_query.wait());
         let res = match futures_util::future::select(handle, query).await {
             futures_util::future::Either::Left((sent, right)) => {
-                sent.map_err(|_| TcpAdnlError::SocketClosed)?
-                    .map_err(|e| TcpAdnlError::ConnectionError(e))?;
+                sent.map_err(|_e| TcpAdnlError::SocketClosed)?
+                    .map_err(TcpAdnlError::ConnectionError)?;
                 right.await
             }
             futures_util::future::Either::Right((left, _)) => left,
@@ -161,11 +166,6 @@ struct Closed {
 impl Closed {
     pub fn is_closed(&self) -> bool {
         self.inner.closed.load(Ordering::Acquire)
-    }
-
-    pub fn closed_notify(&self) -> Option<Notified<'_>> {
-        let closed = self.inner.notify.notified();
-        (!self.is_closed()).then_some(closed)
     }
 
     fn close(&self) {
@@ -332,8 +332,6 @@ pub enum TcpAdnlError {
     SocketClosed,
     #[error("invalid answer")]
     InvalidAnswer(#[source] tl_proto::TlError),
-    #[error("invalid pubkey")]
-    InvalidPubkey,
     #[error("duplicate query")]
     DuplicateQuery,
 }
