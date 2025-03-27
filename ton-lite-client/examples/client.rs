@@ -1,9 +1,7 @@
-use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 
 use anyhow::Result;
 use everscale_types::boc::Boc;
-use everscale_types::cell::HashBytes;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
 use everscale_types::prelude::Load;
