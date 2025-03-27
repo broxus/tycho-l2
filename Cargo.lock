@@ -1781,7 +1781,7 @@ dependencies = [
 [[package]]
 name = "nekoton-abi"
 version = "0.0.1"
-source = "git+ssh://git@github.com/broxus/tycho-nekoton.git#a9e96a2162c37eacc094b2b1427ea2a5f86ef808"
+source = "git+ssh://git@github.com/broxus/tycho-nekoton.git#b3aeeefcfa925d3bba23a687ed47ad18871cb9cf"
 dependencies = [
  "anyhow",
  "everscale-types",
@@ -1796,7 +1796,7 @@ dependencies = [
 [[package]]
 name = "nekoton-utils"
 version = "0.0.1"
-source = "git+ssh://git@github.com/broxus/tycho-nekoton.git#a9e96a2162c37eacc094b2b1427ea2a5f86ef808"
+source = "git+ssh://git@github.com/broxus/tycho-nekoton.git#b3aeeefcfa925d3bba23a687ed47ad18871cb9cf"
 dependencies = [
  "anyhow",
  "everscale-types",

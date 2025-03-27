@@ -72,11 +72,6 @@ impl BlockchainClient for JrpcClient {
             }
         }
     }
-
-    async fn get_vset_last_utime(&self) -> Result<u32> {
-        // TODO:
-        Ok(1742914681)
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
