@@ -15,8 +15,8 @@ arc-swap = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 everscale-types = { workspace = true, features = ["tycho", "models", "base64", "serde"] }
+futures-util = { workspace = true }
 parking_lot = { workspace = true }
-rayon = { workspace = true }
 reqwest = { workspace = true, features = ["http2", "json", "rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }

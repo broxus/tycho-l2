@@ -1,18 +1,18 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::Duration;
+
 use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
 use nekoton_abi::execution_context::ExecutionContextBuilder;
 use parking_lot::Mutex;
-use std::collections::BTreeMap;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
 
 pub mod ton;
 pub mod tycho;
 
 #[async_trait]
-pub trait BlockchainClient {
+pub trait BlockStreamClient {
     async fn get_last_key_block(&self) -> anyhow::Result<KeyBlockData>;
 
     async fn get_key_block(&self, seqno: u32) -> anyhow::Result<KeyBlockData>;
@@ -24,6 +24,7 @@ pub trait BlockchainClient {
 
 pub struct BlockStream<T> {
     client: T,
+    contract: StdAddr,
     config: BlockchainConfig,
     cache: Mutex<BTreeMap<u32, KeyBlockData>>,
     last_known_utime_since: ArcSwapOption<u32>,
@@ -31,13 +32,14 @@ pub struct BlockStream<T> {
     error_timeout: Duration,
 }
 
-impl<T: BlockchainClient> BlockStream<T> {
-    pub async fn new(client: T) -> anyhow::Result<Self> {
+impl<T: BlockStreamClient> BlockStream<T> {
+    pub async fn new(client: T, contract: StdAddr) -> anyhow::Result<Self> {
         let config = client.get_blockchain_config().await?;
 
         Ok(Self {
             client,
             config,
+            contract,
             cache: Default::default(),
             last_known_utime_since: Default::default(),
             polling_timeout: Duration::from_secs(30),
@@ -137,13 +139,9 @@ impl<T: BlockchainClient> BlockStream<T> {
     }
 
     async fn get_current_epoch_since(&self) -> anyhow::Result<u32> {
-        let addr = StdAddr::from_str(
-            "0:457c0ac35986d4e056deee8428abe27294f97c3266dc9062d689a07c8e967164",
-        )?; // TODO: move to config
-
         let account = self
             .client
-            .get_account_state(addr)
+            .get_account_state(self.contract.clone())
             .await?
             .0
             .ok_or(BlockStreamError::AccountNotFound)?;

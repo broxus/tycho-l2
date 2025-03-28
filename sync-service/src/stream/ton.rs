@@ -9,10 +9,10 @@ use everscale_types::prelude::Load;
 use proof_api_util::block::{check_signatures, BlockchainBlock, BlockchainModels, TonModels};
 use ton_lite_client::{proto, LiteClient};
 
-use crate::stream::{BlockchainClient, KeyBlockData};
+use crate::stream::{BlockStreamClient, KeyBlockData};
 
 #[async_trait]
-impl BlockchainClient for LiteClient {
+impl BlockStreamClient for LiteClient {
     async fn get_last_key_block(&self) -> Result<KeyBlockData> {
         let mc_block_id = self.get_last_mc_block_id().await?;
 
