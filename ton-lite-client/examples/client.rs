@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         };
 
         // Block proof
-        let proof = client.get_block_proof(&prev_id, Some(&id)).await?;
+        let proof = client.get_block_proof(&prev_id, Some(&id), false).await?;
         let key_block_proof = 'proof: {
             for step in proof.steps {
                 if let proto::BlockLink::BlockLinkForward(proof) = step {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sync_service::config::WorkerConfig;
+use sync_service::config::WorkerConfigExt;
 use sync_service::stream::{BlockStream, BlockStreamClient};
 
 pub struct ServiceWorker<T> {
@@ -7,10 +7,8 @@ pub struct ServiceWorker<T> {
 }
 
 impl<T: BlockStreamClient> ServiceWorker<T> {
-    pub async fn new(block_stream_client: T, config: &WorkerConfig) -> Result<Self> {
-        let block_stream =
-            BlockStream::new(block_stream_client, config.bridge_address.clone()).await?;
-
+    pub async fn new<C: WorkerConfigExt>(block_stream_client: T, config: C) -> Result<Self> {
+        let block_stream = BlockStream::new(block_stream_client, config.block_stream()).await?;
         Ok(Self { block_stream })
     }
 
