@@ -9,7 +9,7 @@ async fn main() -> Result<()> {
     let url = reqwest::Url::parse("https://rpc-devnet1.tychoprotocol.com/")?;
     let client = JrpcClient::new(url)?;
 
-    let stream = BlockStream::new(client);
+    let stream = BlockStream::new(client).await?;
     while let Some(block) = stream.next_block().await {
         tracing::info!(utime_since = block.v_set.utime_since);
     }

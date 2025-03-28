@@ -4,7 +4,6 @@ use anyhow::Result;
 use everscale_types::boc::Boc;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
-use everscale_types::prelude::Load;
 use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
 use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
 
