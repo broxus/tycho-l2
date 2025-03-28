@@ -1,19 +1,19 @@
 use anyhow::Result;
 use sync_service::config::WorkerConfigExt;
-use sync_service::stream::{BlockStream, BlockStreamClient};
+use sync_service::provider::{BlockProvider, BlockProviderClient};
 
 pub struct ServiceWorker<T> {
-    block_stream: BlockStream<T>,
+    block_provider: BlockProvider<T>,
 }
 
-impl<T: BlockStreamClient> ServiceWorker<T> {
-    pub async fn new<C: WorkerConfigExt>(block_stream_client: T, config: C) -> Result<Self> {
-        let block_stream = BlockStream::new(block_stream_client, config.block_stream()).await?;
-        Ok(Self { block_stream })
+impl<T: BlockProviderClient> ServiceWorker<T> {
+    pub async fn new<C: WorkerConfigExt>(client: T, config: C) -> Result<Self> {
+        let block_provider = BlockProvider::new(client, config.block_provider()).await?;
+        Ok(Self { block_provider })
     }
 
     pub async fn run(&self) -> Result<()> {
-        while let Some(block) = self.block_stream.next_block().await {
+        while let Some(block) = self.block_provider.next_block().await {
             // TODO: deploy v_set/signature from block
         }
 

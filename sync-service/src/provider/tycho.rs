@@ -6,11 +6,11 @@ use everscale_types::models::{BlockSignatures, BlockchainConfig, OptionalAccount
 use everscale_types::prelude::Load;
 use proof_api_util::block::{BaseBlockProof, BlockchainBlock, BlockchainModels, TychoModels};
 
-use crate::stream::{BlockStreamClient, KeyBlockData};
+use crate::provider::{BlockProviderClient, KeyBlockData};
 use crate::utils::jrpc_client::{AccountStateResponse, JrpcClient};
 
 #[async_trait]
-impl BlockStreamClient for JrpcClient {
+impl BlockProviderClient for JrpcClient {
     async fn get_last_key_block(&self) -> Result<KeyBlockData> {
         let res = self.get_latest_key_block().await?;
 
@@ -25,12 +25,12 @@ impl BlockStreamClient for JrpcClient {
     async fn get_key_block(&self, seqno: u32) -> Result<KeyBlockData> {
         let res = self.get_key_block_proof(seqno).await?;
         let proof = BocRepr::decode_base64::<BaseBlockProof<BlockSignatures>, _>(
-            res.proof.ok_or(TychoBlockStreamError::ProofNotFound)?,
+            res.proof.ok_or(TychoBlockProviderError::ProofNotFound)?,
         )?;
 
         let signatures = proof
             .signatures
-            .ok_or(TychoBlockStreamError::SignaturesNotFound)?
+            .ok_or(TychoBlockProviderError::SignaturesNotFound)?
             .load()?
             .signatures
             .iter()
@@ -75,7 +75,7 @@ impl BlockStreamClient for JrpcClient {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum TychoBlockStreamError {
+pub enum TychoBlockProviderError {
     #[error("signatures not found in key block")]
     SignaturesNotFound,
     #[error("proof not found")]
