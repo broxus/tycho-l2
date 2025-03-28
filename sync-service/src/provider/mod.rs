@@ -14,7 +14,7 @@ pub mod ton;
 pub mod tycho;
 
 #[async_trait]
-pub trait BlockStreamClient {
+pub trait BlockProviderClient {
     async fn get_last_key_block(&self) -> anyhow::Result<KeyBlockData>;
 
     async fn get_key_block(&self, seqno: u32) -> anyhow::Result<KeyBlockData>;
@@ -24,16 +24,16 @@ pub trait BlockStreamClient {
     async fn get_account_state(&self, account: StdAddr) -> anyhow::Result<OptionalAccount>;
 }
 
-pub struct BlockStream<T> {
+pub struct BlockProvider<T> {
     client: T,
-    config: BlockStreamConfig,
+    config: BlockProviderConfig,
     blockchain_config: BlockchainConfig,
     cache: Mutex<BTreeMap<u32, KeyBlockData>>,
     last_known_utime_since: ArcSwapOption<u32>,
 }
 
-impl<T: BlockStreamClient> BlockStream<T> {
-    pub async fn new(client: T, config: BlockStreamConfig) -> anyhow::Result<Self> {
+impl<T: BlockProviderClient> BlockProvider<T> {
+    pub async fn new(client: T, config: BlockProviderConfig) -> anyhow::Result<Self> {
         let blockchain_config = client.get_blockchain_config().await?;
 
         Ok(Self {
@@ -120,7 +120,7 @@ impl<T: BlockStreamClient> BlockStream<T> {
                                 tokio::time::sleep(config.error_timeout).await;
                                 continue;
                             }
-                            _ => return None, // Finish stream (shouldn't happen)
+                            _ => return None, // Finish provider (shouldn't happen)
                         }
                     }
                 }
@@ -133,7 +133,7 @@ impl<T: BlockStreamClient> BlockStream<T> {
                     tokio::time::sleep(config.error_timeout).await;
                     continue 'polling;
                 }
-                _ => return None, // Finish stream (shouldn't happen)
+                _ => return None, // Finish provider (shouldn't happen)
             }
         }
     }
@@ -144,7 +144,7 @@ impl<T: BlockStreamClient> BlockStream<T> {
             .get_account_state(self.config.bridge_address.clone())
             .await?
             .0
-            .ok_or(BlockStreamError::AccountNotFound)?;
+            .ok_or(BlockProviderError::AccountNotFound)?;
 
         let context = ExecutionContextBuilder::new(&account)
             .with_config(self.blockchain_config.clone())
@@ -152,7 +152,7 @@ impl<T: BlockStreamClient> BlockStream<T> {
 
         let result = context.run_getter("get_state_short", &[])?;
         if !result.success {
-            return Err(BlockStreamError::VmExecutionFailed(result.exit_code).into());
+            return Err(BlockProviderError::VmExecutionFailed(result.exit_code).into());
         }
 
         let current_epoch_since: u32 = result.stack[0].try_as_int()?.try_into()?;
@@ -168,7 +168,7 @@ pub struct KeyBlockData {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct BlockStreamConfig {
+pub struct BlockProviderConfig {
     pub bridge_address: StdAddr,
     #[serde(with = "serde_helpers::humantime")]
     pub polling_timeout: Duration,
@@ -177,7 +177,7 @@ pub struct BlockStreamConfig {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum BlockStreamError {
+pub enum BlockProviderError {
     #[error("account state not found")]
     AccountNotFound,
     #[error("vm execution failed: {0}")]

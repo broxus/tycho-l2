@@ -1,8 +1,9 @@
 use std::path::Path;
 
-use crate::stream::BlockStreamConfig;
 use anyhow::Context;
 use serde::Deserialize;
+
+use crate::provider::BlockProviderConfig;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServiceConfig {
@@ -11,8 +12,8 @@ pub struct ServiceConfig {
 
 impl ServiceConfig {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let data = std::fs::read(path).context("failed to read service config 2")?;
-        serde_json::from_slice(&data).context("failed to deserialize service config 2")
+        let data = std::fs::read(path).context("failed to read service config")?;
+        serde_json::from_slice(&data).context("failed to deserialize service config")
     }
 }
 
@@ -26,28 +27,28 @@ pub enum WorkerType {
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerConfig {
     pub l2_rcp_url: String,
-    pub block_stream: BlockStreamConfig,
+    pub block_provider: BlockProviderConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct L2L2WorkerConfig {
     pub left_rcp_url: String,
     pub right_rcp_url: String,
-    pub block_stream: BlockStreamConfig,
+    pub block_provider: BlockProviderConfig,
 }
 
 pub trait WorkerConfigExt {
-    fn block_stream(&self) -> BlockStreamConfig;
+    fn block_provider(&self) -> BlockProviderConfig;
 }
 
 impl WorkerConfigExt for WorkerConfig {
-    fn block_stream(&self) -> BlockStreamConfig {
-        self.block_stream.clone()
+    fn block_provider(&self) -> BlockProviderConfig {
+        self.block_provider.clone()
     }
 }
 
 impl WorkerConfigExt for L2L2WorkerConfig {
-    fn block_stream(&self) -> BlockStreamConfig {
-        self.block_stream.clone()
+    fn block_provider(&self) -> BlockProviderConfig {
+        self.block_provider.clone()
     }
 }

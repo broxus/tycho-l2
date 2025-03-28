@@ -9,10 +9,10 @@ use everscale_types::prelude::Load;
 use proof_api_util::block::{check_signatures, BlockchainBlock, BlockchainModels, TonModels};
 use ton_lite_client::{proto, LiteClient};
 
-use crate::stream::{BlockStreamClient, KeyBlockData};
+use crate::provider::{BlockProviderClient, KeyBlockData};
 
 #[async_trait]
-impl BlockStreamClient for LiteClient {
+impl BlockProviderClient for LiteClient {
     async fn get_last_key_block(&self) -> Result<KeyBlockData> {
         let mc_block_id = self.get_last_mc_block_id().await?;
 
@@ -70,7 +70,7 @@ impl BlockStreamClient for LiteClient {
         let hash = dest_proof.cell.hash(0);
 
         if hash.0 != key_block_id.root_hash.0 {
-            return Err(TonBlockStreamError::InvalidBlockProof.into());
+            return Err(TonBlockProviderError::InvalidBlockProof.into());
         }
 
         // Parse proof
@@ -83,7 +83,7 @@ impl BlockStreamClient for LiteClient {
         let custom = block
             .load_extra()?
             .custom
-            .ok_or(TonBlockStreamError::KeyBlockNotFull)?;
+            .ok_or(TonBlockProviderError::KeyBlockNotFull)?;
 
         let mut slice = custom.as_slice()?;
         slice.only_last(256, 1)?;
@@ -126,7 +126,7 @@ impl BlockStreamClient for LiteClient {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum TonBlockStreamError {
+pub enum TonBlockProviderError {
     #[error("key block not full")]
     KeyBlockNotFull,
     #[error("invalid block proof")]
