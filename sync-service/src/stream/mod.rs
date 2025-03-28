@@ -7,6 +7,8 @@ use async_trait::async_trait;
 use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
 use nekoton_abi::execution_context::ExecutionContextBuilder;
 use parking_lot::Mutex;
+use serde::Deserialize;
+use tycho_util::serde_helpers;
 
 pub mod ton;
 pub mod tycho;
@@ -24,30 +26,28 @@ pub trait BlockStreamClient {
 
 pub struct BlockStream<T> {
     client: T,
-    contract: StdAddr,
-    config: BlockchainConfig,
+    config: BlockStreamConfig,
+    blockchain_config: BlockchainConfig,
     cache: Mutex<BTreeMap<u32, KeyBlockData>>,
     last_known_utime_since: ArcSwapOption<u32>,
-    polling_timeout: Duration,
-    error_timeout: Duration,
 }
 
 impl<T: BlockStreamClient> BlockStream<T> {
-    pub async fn new(client: T, contract: StdAddr) -> anyhow::Result<Self> {
-        let config = client.get_blockchain_config().await?;
+    pub async fn new(client: T, config: BlockStreamConfig) -> anyhow::Result<Self> {
+        let blockchain_config = client.get_blockchain_config().await?;
 
         Ok(Self {
             client,
             config,
-            contract,
+            blockchain_config,
             cache: Default::default(),
             last_known_utime_since: Default::default(),
-            polling_timeout: Duration::from_secs(30),
-            error_timeout: Duration::from_secs(1),
         })
     }
 
     pub async fn next_block(&self) -> Option<KeyBlockData> {
+        let config = &self.config;
+
         {
             let mut cache = self.cache.lock();
             if !cache.is_empty() {
@@ -70,7 +70,7 @@ impl<T: BlockStreamClient> BlockStream<T> {
                     Ok(utime_since) => utime_since,
                     Err(e) => {
                         tracing::error!("failed to get last key block: {e}");
-                        tokio::time::sleep(self.error_timeout).await;
+                        tokio::time::sleep(config.error_timeout).await;
                         continue 'polling;
                     }
                 },
@@ -117,7 +117,7 @@ impl<T: BlockStreamClient> BlockStream<T> {
                                     seqno = prev_key_block_seqno,
                                     "failed to get key block: {e}",
                                 );
-                                tokio::time::sleep(self.error_timeout).await;
+                                tokio::time::sleep(config.error_timeout).await;
                                 continue;
                             }
                             _ => return None, // Finish stream (shouldn't happen)
@@ -125,12 +125,12 @@ impl<T: BlockStreamClient> BlockStream<T> {
                     }
                 }
                 Ok(block_info) if block_info.v_set.utime_since == last_known_utime_since => {
-                    tokio::time::sleep(self.polling_timeout).await;
+                    tokio::time::sleep(config.polling_timeout).await;
                     continue 'polling;
                 }
                 Err(e) => {
                     tracing::error!("failed to get last key block: {e}");
-                    tokio::time::sleep(self.error_timeout).await;
+                    tokio::time::sleep(config.error_timeout).await;
                     continue 'polling;
                 }
                 _ => return None, // Finish stream (shouldn't happen)
@@ -141,13 +141,13 @@ impl<T: BlockStreamClient> BlockStream<T> {
     async fn get_current_epoch_since(&self) -> anyhow::Result<u32> {
         let account = self
             .client
-            .get_account_state(self.contract.clone())
+            .get_account_state(self.config.bridge_address.clone())
             .await?
             .0
             .ok_or(BlockStreamError::AccountNotFound)?;
 
         let context = ExecutionContextBuilder::new(&account)
-            .with_config(self.config.clone())
+            .with_config(self.blockchain_config.clone())
             .build()?;
 
         let result = context.run_getter("get_state_short", &[])?;
@@ -165,6 +165,15 @@ pub struct KeyBlockData {
     pub prev_seqno: u32,
     pub v_set: everscale_types::models::ValidatorSet,
     pub signatures: Vec<everscale_types::models::BlockSignature>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlockStreamConfig {
+    pub bridge_address: StdAddr,
+    #[serde(with = "serde_helpers::humantime")]
+    pub polling_timeout: Duration,
+    #[serde(with = "serde_helpers::humantime")]
+    pub error_timeout: Duration,
 }
 
 #[derive(thiserror::Error, Debug)]
