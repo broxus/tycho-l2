@@ -14,7 +14,7 @@ pub mod ton;
 pub mod tycho;
 
 #[async_trait]
-pub trait BlockProviderClient {
+pub trait KeyBlockProviderClient {
     async fn get_last_key_block(&self) -> anyhow::Result<KeyBlockData>;
 
     async fn get_key_block(&self, seqno: u32) -> anyhow::Result<KeyBlockData>;
@@ -24,7 +24,7 @@ pub trait BlockProviderClient {
     async fn get_account_state(&self, account: StdAddr) -> anyhow::Result<OptionalAccount>;
 }
 
-pub struct BlockProvider<T> {
+pub struct KeyBlockProvider<T> {
     client: T,
     config: BlockProviderConfig,
     blockchain_config: BlockchainConfig,
@@ -32,7 +32,7 @@ pub struct BlockProvider<T> {
     last_known_utime_since: ArcSwapOption<u32>,
 }
 
-impl<T: BlockProviderClient> BlockProvider<T> {
+impl<T: KeyBlockProviderClient> KeyBlockProvider<T> {
     pub async fn new(client: T, config: BlockProviderConfig) -> anyhow::Result<Self> {
         let blockchain_config = client.get_blockchain_config().await?;
 
