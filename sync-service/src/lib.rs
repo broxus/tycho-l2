@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 pub mod config;
 pub mod provider;
+pub mod uploader;
 pub mod utils;
 
 pub static BIN_VERSION: &str = env!("SYNC_SERVICE_VERSION");

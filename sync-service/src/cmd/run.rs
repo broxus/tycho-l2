@@ -29,8 +29,9 @@ impl Cmd {
         for worker_type in service_config.workers {
             match worker_type {
                 WorkerType::L2Ton(config) => {
-                    let client = JrpcClient::new(config.l2_rcp_url.parse()?)?;
-                    let worker = ServiceWorker::new(client, config).await?;
+                    let l2_client = JrpcClient::new(config.l2_rcp_url.parse()?)?;
+                    let worker =
+                        ServiceWorker::new(l2_client, ton_lite_client.clone(), config).await?;
 
                     let _handle = tokio::spawn(async move {
                         tracing::info!("worker L2->TON started");
@@ -41,7 +42,9 @@ impl Cmd {
                     });
                 }
                 WorkerType::TonL2(config) => {
-                    let worker = ServiceWorker::new(ton_lite_client.clone(), config).await?;
+                    let l2_client = JrpcClient::new(config.l2_rcp_url.parse()?)?;
+                    let worker =
+                        ServiceWorker::new(ton_lite_client.clone(), l2_client, config).await?;
 
                     let _handle = tokio::spawn(async move {
                         tracing::info!("worker TON->L2 started");
@@ -55,7 +58,7 @@ impl Cmd {
                     let left_client = JrpcClient::new(config.left_rcp_url.as_str().parse()?)?;
                     let right_client = JrpcClient::new(config.right_rcp_url.as_str().parse()?)?;
 
-                    let worker = ServiceWorker::new(left_client, config).await?;
+                    let worker = ServiceWorker::new(left_client, right_client, config).await?;
 
                     let _handle = tokio::spawn(async move {
                         tracing::info!("worker L2->L2 started");

@@ -6,11 +6,11 @@ use everscale_types::models::{BlockSignatures, BlockchainConfig, OptionalAccount
 use everscale_types::prelude::Load;
 use proof_api_util::block::{BaseBlockProof, BlockchainBlock, BlockchainModels, TychoModels};
 
-use crate::provider::{BlockProviderClient, KeyBlockData};
+use crate::provider::{KeyBlockData, KeyBlockProviderClient};
 use crate::utils::jrpc_client::{AccountStateResponse, JrpcClient};
 
 #[async_trait]
-impl BlockProviderClient for JrpcClient {
+impl KeyBlockProviderClient for JrpcClient {
     async fn get_last_key_block(&self) -> Result<KeyBlockData> {
         let res = self.get_latest_key_block().await?;
 
