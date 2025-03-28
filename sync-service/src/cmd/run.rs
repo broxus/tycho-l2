@@ -1,51 +1,60 @@
 use anyhow::Result;
 use clap::Parser;
-use tycho_util::cli::signal;
+use std::path::PathBuf;
+use sync_service::config::ServiceConfig;
+use sync_service::utils::jrpc_client::JrpcClient;
+use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
+
+use crate::service::ServiceWorker;
 
 #[derive(Parser)]
-pub struct Cmd {}
+pub struct Cmd {
+    // Path to the TON global config.
+    #[clap(long)]
+    pub global_config: PathBuf,
+
+    // Path to the TON global config.
+    #[clap(long)]
+    pub service_config: PathBuf,
+}
 
 impl Cmd {
-    pub fn run(self) -> Result<()> {
-        std::panic::set_hook(Box::new(|info| {
-            use std::io::Write;
-            let backtrace = std::backtrace::Backtrace::capture();
+    pub async fn run(self) -> Result<()> {
+        let global_config = TonGlobalConfig::load_from_file(self.global_config)?;
+        let ton_lite_client =
+            LiteClient::new(LiteClientConfig::default(), global_config.liteservers);
 
-            tracing::error!("{info}\n{backtrace}");
-            std::io::stderr().flush().ok();
-            std::io::stdout().flush().ok();
-            std::process::exit(1);
-        }));
+        let service_config = ServiceConfig::load_from_file(self.service_config)?;
 
-        rayon::ThreadPoolBuilder::new()
-            .stack_size(8 * 1024 * 1024)
-            .thread_name(|_| "rayon_worker".to_string())
-            .num_threads(2) // TODO: move to config
-            .build_global()
-            .unwrap();
+        // L2->TON
+        for config in &service_config.l2_ton {
+            let client = JrpcClient::new(config.tycho_rcp_url.parse()?)?;
+            let worker = ServiceWorker::new(client, config).await?;
 
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .worker_threads(2) // TODO: move to config
-            .build()?
-            .block_on(async move {
-                let run_fut = tokio::spawn(self.run_impl());
-                let stop_fut = signal::any_signal(signal::TERMINATION_SIGNALS);
-                tokio::select! {
-                    res = run_fut => res.unwrap(),
-                    signal = stop_fut => match signal {
-                        Ok(signal) => {
-                            tracing::info!(?signal, "received termination signal");
-                            Ok(())
-                        }
-                        Err(e) => Err(e.into()),
-                    }
+            // TODO:
+            let _handle = tokio::spawn(async move {
+                tracing::info!("worker L2->TON started");
+                if let Err(e) = worker.run().await {
+                    tracing::error!(%e, "worker L2->TON failed");
                 }
-            })
-    }
+                tracing::info!("worker L2->TON finished");
+            });
+        }
 
-    async fn run_impl(self) -> Result<()> {
-        // TODO:
+        // TON->L2
+        for config in &service_config.l2_ton {
+            let worker = ServiceWorker::new(ton_lite_client.clone(), config).await?;
+
+            // let _handle = tokio::spawn(async move {
+            //     tracing::info!("worker TON->L2 started");
+            //     if let Err(e) = worker.run().await {
+            //         tracing::error!(%e, "worker TON->L2 failed");
+            //     }
+            //     tracing::info!("worker TON->L2 finished");
+            // });
+        }
+
+        futures_util::future::pending::<()>().await;
 
         Ok(())
     }

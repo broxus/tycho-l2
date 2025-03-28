@@ -7,11 +7,14 @@ mod cmd {
     pub mod run;
 }
 
+mod service;
+
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[allow(clippy::print_stderr)]
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     if std::env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.
         std::env::set_var("RUST_BACKTRACE", "1");
@@ -21,7 +24,9 @@ fn main() -> ExitCode {
         std::env::set_var("RUST_LIB_BACKTRACE", "0");
     }
 
-    match App::parse().run() {
+    tracing_subscriber::fmt::init();
+
+    match App::parse().run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("Error: {err:?}");
@@ -39,9 +44,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn run(self) -> Result<()> {
+    pub async fn run(self) -> Result<()> {
         match self.cmd {
-            SubCmd::Run(cmd) => cmd.run(),
+            SubCmd::Run(cmd) => cmd.run().await,
         }
     }
 }
