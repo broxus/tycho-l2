@@ -4,7 +4,7 @@ use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{
     BlockId, BlockIdShort, BlockSignature, CurrencyCollection, ShardIdent, ValidatorBaseInfo,
-    ValidatorSet,
+    ValidatorDescription, ValidatorSet,
 };
 use everscale_types::prelude::*;
 
@@ -435,6 +435,37 @@ where
     }
 
     Ok(Some(pruned_block))
+}
+
+pub fn check_signatures(
+    signatures: &Vec<BlockSignature>,
+    list: &[ValidatorDescription],
+    data: &[u8],
+) -> Result<u64, Error> {
+    // Collect nodes by short id
+    let mut unique_nodes = HashMap::<[u8; 32], &ValidatorDescription>::with_capacity_and_hasher(
+        list.len(),
+        Default::default(),
+    );
+
+    for node in list {
+        let node_id_short = tl_proto::hash(everscale_crypto::tl::PublicKey::Ed25519 {
+            key: node.public_key.as_ref(),
+        });
+        unique_nodes.insert(node_id_short, node);
+    }
+
+    let mut weight = 0;
+    for value in signatures {
+        if let Some(node) = unique_nodes.get(&value.node_id_short) {
+            if !node.verify_signature(data, &value.signature) {
+                return Err(Error::InvalidSignature);
+            }
+            weight += node.weight;
+        }
+    }
+
+    Ok(weight)
 }
 
 fn find_shard_descr(mut root: &'_ DynCell, mut prefix: u64) -> Result<CellSlice<'_>, Error> {

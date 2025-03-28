@@ -2,10 +2,11 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use everscale_types::boc::Boc;
+use everscale_types::cell::Load;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockchainConfig, OptionalAccount, StdAddr};
-use proof_api_util::block::{BlockchainBlock, BlockchainModels, TonModels};
-use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
+use everscale_types::models::{Block, BlockchainConfig, OptionalAccount, StdAddr};
+use proof_api_util::block::{check_signatures, BlockchainBlock, BlockchainModels, TonModels};
+use ton_lite_client::{proto, LiteClient, LiteClientConfig, TonGlobalConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,7 +18,7 @@ async fn main() -> Result<()> {
     let config = LiteClientConfig::default();
     let client = LiteClient::new(config, global_config.liteservers);
 
-    // Get last key block proof
+    // Check block proof
     {
         // Get mc info
         let mc_block_id = client.get_last_mc_block_id().await?;
@@ -29,36 +30,74 @@ async fn main() -> Result<()> {
             .await?
             .parse::<<TonModels as BlockchainModels>::Block>()?;
 
-        let prev_key_block_seqno = mc_block.load_info()?.prev_key_block_seqno;
-        tracing::info!(prev_key_block_seqno);
+        // Last key block
+        let (id, key_block) = {
+            let seqno = mc_block.load_info()?.prev_key_block_seqno;
 
-        // Last key block id
-        let key_block_short_id = everscale_types::models::BlockIdShort {
-            shard: mc_block_id.shard,
-            seqno: prev_key_block_seqno,
+            let short_id = everscale_types::models::BlockIdShort {
+                shard: mc_block_id.shard,
+                seqno,
+            };
+            let id = client.lookup_block(short_id).await?;
+
+            let block = client
+                .get_block(&id)
+                .await?
+                .parse::<<TonModels as BlockchainModels>::Block>()?;
+
+            (id, block)
         };
-        let key_block_id = client.lookup_block(key_block_short_id).await?;
-        tracing::info!(?key_block_id);
 
-        // // Block proof
-        // let proof = client.get_block_proof(&key_block_id).await?;
-        // tracing::info!(?proof);
+        // Prev key block
+        let prev_id = {
+            let seqno = key_block.load_info()?.prev_key_block_seqno;
+            let short_id = everscale_types::models::BlockIdShort {
+                shard: mc_block_id.shard,
+                seqno,
+            };
 
-        // let proof = everscale_types::boc::Boc::decode(&proof.config_proof)?
-        //     .parse_exotic::<MerkleProof>()?;
+            client.lookup_block(short_id).await?
+        };
 
-        // let block = proof
-        //     .cell
-        //     .parse::<<TonModels as BlockchainModels>::Block>()?;
+        // Block proof
+        let proof = client.get_block_proof(&prev_id, Some(&id)).await?;
+        let key_block_proof = 'proof: {
+            for step in proof.steps {
+                if let proto::BlockLink::BlockLinkForward(proof) = step {
+                    break 'proof proof;
+                }
+            }
 
-        // if let Some(custom) = block.load_extra()?.custom {
-        //     let mut slice = custom.as_slice()?;
-        //     slice.only_last(256, 1)?;
+            anyhow::bail!("proof not found");
+        };
+        assert!(key_block_proof.to_key_block);
 
-        //     let config = BlockchainConfig::load_from(&mut slice)?;
-        //     let v_set = config.get_current_validator_set()?;
-        //     tracing::info!(?v_set);
-        // }
+        let v_set = {
+            let proof =
+                Boc::decode(&key_block_proof.config_proof)?.parse_exotic::<MerkleProof>()?;
+
+            let dest_proof =
+                Boc::decode(&key_block_proof.dest_proof)?.parse_exotic::<MerkleProof>()?;
+
+            assert_eq!(id.root_hash.0, dest_proof.cell.hash(0).0);
+
+            let block = proof
+                .cell
+                .parse::<<TonModels as BlockchainModels>::Block>()?;
+
+            let custom = block.load_extra()?.custom.expect("should exist");
+
+            let mut slice = custom.as_slice()?;
+            slice.only_last(256, 1)?;
+
+            let blockchain_config = BlockchainConfig::load_from(&mut slice)?;
+            blockchain_config.get_current_validator_set()?
+        };
+
+        let to_sign = Block::build_data_for_sign(&id);
+        let signatures = key_block_proof.signatures.signatures;
+
+        check_signatures(&signatures, &v_set.list, &to_sign)?;
     }
 
     // Get blockchain config
