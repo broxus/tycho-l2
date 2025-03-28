@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 
+pub mod api;
 pub mod client;
 
 pub static BIN_VERSION: &str = env!("PROOFS_API_VERSION");

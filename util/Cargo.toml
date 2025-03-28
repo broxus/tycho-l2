@@ -11,13 +11,36 @@ license.workspace = true
 
 [dependencies]
 ahash = { workspace = true }
+aide = { workspace = true, optional = true }
 anyhow = { workspace = true }
+axum = { workspace = true, optional = true }
 everscale-crypto = { workspace = true, features = ["tl-proto"] }
-everscale-types = { workspace = true, features = ["models"] }
+everscale-types = { workspace = true, features = ["models", "base64", "serde"] }
+futures-util = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
 tl-proto = { workspace = true }
+tokio = { workspace = true, optional = true }
+tower-service = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 everscale-types = { workspace = true, features = ["models", "base64"] }
+
+[features]
+api = [
+    "dep:aide",
+    "dep:axum",
+    "dep:futures-util",
+    "dep:http",
+    "dep:schemars",
+    "dep:serde_json",
+    "dep:tokio",
+    "dep:tower-service",
+    "dep:tracing",
+]
 
 [lints]
 workspace = true

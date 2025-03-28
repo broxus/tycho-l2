@@ -7,6 +7,7 @@ use everscale_types::models::BlockId;
 use futures_util::future::BoxFuture;
 use proof_api_l2::api::ApiConfig;
 use proof_api_l2::storage::{ProofStorage, ProofStorageConfig};
+use proof_api_util::api::Api;
 use serde::{Deserialize, Serialize};
 use tycho_block_util::archive::ArchiveData;
 use tycho_block_util::block::BlockStuff;
@@ -96,9 +97,12 @@ impl Cmd {
         tracing::info!("created proofs storage");
 
         // Bind API.
-        let api = proof_api_l2::api::Api::bind(node_config.user_config.api, proofs.clone())
-            .await
-            .context("failed to bind API service")?;
+        let api = Api::bind(
+            node_config.user_config.api.listen_addr,
+            proof_api_l2::api::build_api(&node_config.user_config.api, proofs.clone()),
+        )
+        .await
+        .context("failed to bind API service")?;
         tracing::info!("created api");
 
         // Prepare block providers.
@@ -142,7 +146,7 @@ impl Cmd {
         .await?;
 
         // Serve API for the reset of the lifetime
-        api_fut.await
+        api_fut.await.map_err(Into::into)
     }
 }
 

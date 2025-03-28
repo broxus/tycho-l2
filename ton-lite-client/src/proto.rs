@@ -243,6 +243,8 @@ pub mod rpc {
         pub known_block: BlockId,
         #[tl(flags_bit = "mode.0", with = "tl_block_id_full")]
         pub target_block: Option<BlockId>,
+        #[tl(flags_bit = "mode.12")]
+        pub with_known_block: Option<()>,
     }
 
     #[derive(Clone, Debug, TlRead, TlWrite)]

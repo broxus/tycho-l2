@@ -54,7 +54,7 @@ impl BlockchainClient for LiteClient {
 
         let key_block_proof = 'proof: {
             let partial = self
-                .get_block_proof(&prev_key_block_id, Some(&key_block_id))
+                .get_block_proof(&prev_key_block_id, Some(&key_block_id), false)
                 .await?;
             for step in partial.steps {
                 if let proto::BlockLink::BlockLinkForward(proof) = step {

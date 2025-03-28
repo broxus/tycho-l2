@@ -17,7 +17,6 @@ arc-swap = { workspace = true }
 axum = { workspace = true }
 bytesize = { workspace = true, features = ["serde"] }
 clap = { workspace = true }
-everscale-crypto = { workspace = true }
 everscale-types = { workspace = true, features = ["sync", "tycho", "models", "rand", "base64"] }
 fdlimit = { workspace = true }
 futures-util = { workspace = true }
@@ -29,8 +28,6 @@ schemars = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-simd-json = { workspace = true }
-tl-proto = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "fs"] }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -45,12 +42,11 @@ tikv-jemallocator = { workspace = true, features = [
 
 tycho-block-util = { workspace = true }
 tycho-core = { workspace = true }
-tycho-network = { workspace = true }
 tycho-storage = { workspace = true }
 tycho-util = { workspace = true, features = ["cli"] }
 tycho-light-node = { workspace = true }
 
-proof-api-util = { workspace = true }
+proof-api-util = { workspace = true, features = ["api"] }
 
 [build-dependencies]
 anyhow = { workspace = true }

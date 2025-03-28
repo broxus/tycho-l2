@@ -18,7 +18,6 @@ anyhow = "1.0"
 arc-swap = "1.7.1"
 async-trait = "0.1"
 axum = "0.7"
-bytes = "1.10.1"
 bytesize = "2.0.1"
 clap = { version = "4.5.3", features = ["derive"] }
 ctr = "0.9"
@@ -28,6 +27,7 @@ everscale-types = { version = "0.1.2", default-features = false }
 fdlimit = "0.3"
 futures-util = "0.3.31"
 generic-array = "0.14"
+http = "1.3.1"
 humantime = "2.2"
 parking_lot = "0.12.3"
 rand = "0.8"
@@ -39,13 +39,12 @@ scopeguard = "1.2"
 serde = "1.0"
 serde_json = "1.0.114"
 sha2 = "0.10"
-simd-json = "0.15.0"
 thiserror = "1.0"
 tl-proto = "0.5.3"
 tokio = { version = "1", default-features = false }
-tokio-util = { version = "0.7", default-features = false }
 tower = "0.5"
 tower-http = "0.6"
+tower-service = "0.3.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 weedb = "0.4.1"
@@ -55,12 +54,11 @@ tikv-jemallocator = { version = "0.6.0", features = [
     "background_threads",
 ] }
 
-tycho-block-util = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
-tycho-core = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
-tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
-tycho-network = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
-tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
-tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "05717cdb7fd19bcc33239bdb4aa3ce0257044b02" }
+tycho-block-util = { git = "https://github.com/broxus/tycho.git", rev = "449858103d4bbba65c88041eabf4993a82729568" }
+tycho-core = { git = "https://github.com/broxus/tycho.git", rev = "449858103d4bbba65c88041eabf4993a82729568" }
+tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "449858103d4bbba65c88041eabf4993a82729568" }
+tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "449858103d4bbba65c88041eabf4993a82729568" }
+tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "449858103d4bbba65c88041eabf4993a82729568" }
 
 nekoton-abi = { git = "ssh://git@github.com/broxus/tycho-nekoton.git" }
 

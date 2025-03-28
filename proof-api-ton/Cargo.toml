@@ -10,13 +10,17 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+aide = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
-everscale-crypto = { workspace = true }
-everscale-types = { workspace = true }
+everscale-types = { workspace = true, features = ["sync"] }
+schemars = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["timeout", "cors"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
@@ -25,8 +29,9 @@ tikv-jemallocator = { workspace = true, features = [
     "background_threads",
 ] }
 
-proof-api-util = { workspace = true }
+proof-api-util = { workspace = true, features = ["api"] }
 ton-lite-client = { workspace = true }
+tycho-util = { workspace = true, features = ["cli"] }
 
 [build-dependencies]
 anyhow = { workspace = true }

@@ -7,6 +7,7 @@ use everscale_types::prelude::*;
 use proof_api_util::block::{self, BlockchainBlock, BlockchainModels, TonModels};
 use ton_lite_client::{proto, LiteClient};
 
+#[derive(Clone)]
 pub struct TonClient {
     lite_client: LiteClient,
 }
@@ -16,6 +17,7 @@ impl TonClient {
         Self { lite_client }
     }
 
+    // TODO: Move sync parts into rayon.
     pub async fn build_proof(
         &self,
         account: &StdAddr,
@@ -53,7 +55,7 @@ impl TonClient {
             // Find masterchain block proof.
             let mc_block_link = self
                 .lite_client
-                .get_block_proof(&prev_block_id, Some(&block_id))
+                .get_block_proof(&prev_block_id, Some(&block_id), true)
                 .await
                 .context("failed to get mc block proof")?;
 
@@ -81,7 +83,7 @@ impl TonClient {
             // Find masterchain block proof.
             let mc_block_link = self
                 .lite_client
-                .get_block_proof(&prev_block_id, Some(&mc_block_id))
+                .get_block_proof(&prev_block_id, Some(&mc_block_id), true)
                 .await
                 .context("failed to get mc block proof")?;
 

@@ -105,11 +105,13 @@ impl LiteClient {
         &self,
         block_id: &BlockId,
         target_block: Option<&BlockId>,
+        with_known_block: bool,
     ) -> Result<proto::PartialBlockProof> {
         self.query::<_, proto::PartialBlockProof>(proto::rpc::GetBlockProof {
             mode: (),
             known_block: *block_id,
             target_block: target_block.copied(),
+            with_known_block: with_known_block.then_some(()),
         })
         .await
     }
