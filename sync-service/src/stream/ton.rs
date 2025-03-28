@@ -80,9 +80,6 @@ impl BlockchainClient for LiteClient {
             .cell
             .parse::<<TonModels as BlockchainModels>::Block>()?;
 
-        let prev_seqno = block.load_info()?.prev_key_block_seqno;
-        assert_eq!(prev_seqno, prev_key_block_id.seqno);
-
         let custom = block
             .load_extra()?
             .custom
@@ -98,10 +95,10 @@ impl BlockchainClient for LiteClient {
 
         // Check signatures
         let to_sign = Block::build_data_for_sign(&key_block_id);
-        check_signatures(&signatures, &v_set.list, &to_sign)?;
+        let _weigh = check_signatures(&signatures, &v_set.list, &to_sign)?;
 
         Ok(KeyBlockData {
-            prev_seqno,
+            prev_seqno: prev_key_block_id.seqno,
             v_set,
             signatures,
         })
