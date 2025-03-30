@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sync_service::config::WorkerConfigExt;
+use sync_service::config::WorkerConfig;
 use sync_service::provider::{KeyBlockProvider, KeyBlockProviderClient};
 use sync_service::uploader::{KeyBlockUploader, KeyBlockUploaderClient};
 
@@ -9,12 +9,8 @@ pub struct ServiceWorker<T1, T2> {
 }
 
 impl<T1: KeyBlockProviderClient, T2: KeyBlockUploaderClient> ServiceWorker<T1, T2> {
-    pub async fn new<C: WorkerConfigExt>(
-        left_client: T1,
-        right_client: T2,
-        config: C,
-    ) -> Result<Self> {
-        let provider = KeyBlockProvider::new(left_client, config.block_provider()).await?;
+    pub async fn new(left_client: T1, right_client: T2, config: WorkerConfig) -> Result<Self> {
+        let provider = KeyBlockProvider::new(left_client, config.block_provider).await?;
         let uploader = KeyBlockUploader::new(right_client).await?;
         Ok(Self { provider, uploader })
     }

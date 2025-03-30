@@ -7,7 +7,7 @@ use crate::provider::BlockProviderConfig;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServiceConfig {
-    pub workers: Vec<WorkerType>,
+    pub workers: Vec<WorkerConfig>,
 }
 
 impl ServiceConfig {
@@ -18,37 +18,23 @@ impl ServiceConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub enum WorkerType {
-    TonL2(WorkerConfig),
-    L2Ton(WorkerConfig),
-    L2L2(L2L2WorkerConfig),
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct WorkerConfig {
-    pub l2_rcp_url: String,
+    pub left_client_url: ClientType,
+    pub right_client_url: ClientType,
     pub block_provider: BlockProviderConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct L2L2WorkerConfig {
-    pub left_rcp_url: String,
-    pub right_rcp_url: String,
-    pub block_provider: BlockProviderConfig,
+pub enum ClientType {
+    Ton,
+    Tycho { url: String },
 }
 
-pub trait WorkerConfigExt {
-    fn block_provider(&self) -> BlockProviderConfig;
-}
-
-impl WorkerConfigExt for WorkerConfig {
-    fn block_provider(&self) -> BlockProviderConfig {
-        self.block_provider.clone()
-    }
-}
-
-impl WorkerConfigExt for L2L2WorkerConfig {
-    fn block_provider(&self) -> BlockProviderConfig {
-        self.block_provider.clone()
+impl std::fmt::Display for ClientType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ton => write!(f, "Ton"),
+            Self::Tycho { .. } => write!(f, "L2"),
+        }
     }
 }

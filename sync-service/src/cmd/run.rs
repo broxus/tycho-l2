@@ -1,7 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
-use sync_service::config::{ServiceConfig, WorkerType};
+use sync_service::config::{ClientType, ServiceConfig};
+use sync_service::provider::KeyBlockProviderClient;
+use sync_service::uploader::KeyBlockUploaderClient;
 use sync_service::utils::jrpc_client::JrpcClient;
 use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
 
@@ -26,49 +28,31 @@ impl Cmd {
 
         let service_config = ServiceConfig::load_from_file(self.service_config)?;
 
-        for worker_type in service_config.workers {
-            match worker_type {
-                WorkerType::L2Ton(config) => {
-                    let l2_client = JrpcClient::new(config.l2_rcp_url.parse()?)?;
-                    let worker =
-                        ServiceWorker::new(l2_client, ton_lite_client.clone(), config).await?;
+        for config in service_config.workers {
+            let left_client: Box<dyn KeyBlockProviderClient + Send + Sync> =
+                match &config.left_client_url {
+                    ClientType::Ton => Box::new(ton_lite_client.clone()),
+                    ClientType::Tycho { url } => Box::new(JrpcClient::new(url.parse()?)?),
+                };
 
-                    let _handle = tokio::spawn(async move {
-                        tracing::info!("worker L2->TON started");
-                        if let Err(e) = worker.run().await {
-                            tracing::error!(%e, "worker L2->TON failed");
-                        }
-                        tracing::info!("worker L2->TON finished");
-                    });
+            let right_client: Box<dyn KeyBlockUploaderClient + Send + Sync> =
+                match &config.right_client_url {
+                    ClientType::Ton => Box::new(ton_lite_client.clone()),
+                    ClientType::Tycho { url } => Box::new(JrpcClient::new(url.parse()?)?),
+                };
+
+            let left_type = config.right_client_url.clone();
+            let right_type = config.right_client_url.clone();
+
+            let worker = ServiceWorker::new(left_client, right_client, config).await?;
+
+            let _handle = tokio::spawn(async move {
+                tracing::info!("worker {}->{} started", left_type, right_type);
+                if let Err(e) = worker.run().await {
+                    tracing::info!("worker {}->{} failed: {e}", left_type, right_type);
                 }
-                WorkerType::TonL2(config) => {
-                    let l2_client = JrpcClient::new(config.l2_rcp_url.parse()?)?;
-                    let worker =
-                        ServiceWorker::new(ton_lite_client.clone(), l2_client, config).await?;
-
-                    let _handle = tokio::spawn(async move {
-                        tracing::info!("worker TON->L2 started");
-                        if let Err(e) = worker.run().await {
-                            tracing::error!(%e, "worker TON->L2 failed");
-                        }
-                        tracing::info!("worker TON->L2 finished");
-                    });
-                }
-                WorkerType::L2L2(config) => {
-                    let left_client = JrpcClient::new(config.left_rcp_url.as_str().parse()?)?;
-                    let right_client = JrpcClient::new(config.right_rcp_url.as_str().parse()?)?;
-
-                    let worker = ServiceWorker::new(left_client, right_client, config).await?;
-
-                    let _handle = tokio::spawn(async move {
-                        tracing::info!("worker L2->L2 started");
-                        if let Err(e) = worker.run().await {
-                            tracing::error!(%e, "worker L2->L2 failed");
-                        }
-                        tracing::info!("worker L2->L2 finished");
-                    });
-                }
-            };
+                tracing::info!("worker {}->{} finished", left_type, right_type);
+            });
         }
 
         futures_util::future::pending::<()>().await;

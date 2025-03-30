@@ -14,7 +14,7 @@ pub mod ton;
 pub mod tycho;
 
 #[async_trait]
-pub trait KeyBlockProviderClient {
+pub trait KeyBlockProviderClient: Send + Sync {
     async fn get_last_key_block(&self) -> anyhow::Result<KeyBlockData>;
 
     async fn get_key_block(&self, seqno: u32) -> anyhow::Result<KeyBlockData>;
@@ -22,6 +22,25 @@ pub trait KeyBlockProviderClient {
     async fn get_blockchain_config(&self) -> anyhow::Result<BlockchainConfig>;
 
     async fn get_account_state(&self, account: StdAddr) -> anyhow::Result<OptionalAccount>;
+}
+
+#[async_trait]
+impl KeyBlockProviderClient for Box<dyn KeyBlockProviderClient + Send + Sync> {
+    async fn get_last_key_block(&self) -> anyhow::Result<KeyBlockData> {
+        self.as_ref().get_last_key_block().await
+    }
+
+    async fn get_key_block(&self, seqno: u32) -> anyhow::Result<KeyBlockData> {
+        self.as_ref().get_key_block(seqno).await
+    }
+
+    async fn get_blockchain_config(&self) -> anyhow::Result<BlockchainConfig> {
+        self.as_ref().get_blockchain_config().await
+    }
+
+    async fn get_account_state(&self, account: StdAddr) -> anyhow::Result<OptionalAccount> {
+        self.as_ref().get_account_state(account).await
+    }
 }
 
 pub struct KeyBlockProvider<T> {
