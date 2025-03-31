@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::serve::IncomingStream;
 use axum::Extension;
 use futures_util::future::BoxFuture;
-use http::{HeaderName, HeaderValue};
+use http::{HeaderMap, HeaderName, HeaderValue};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tower_service::Service;
@@ -150,3 +150,39 @@ pub const JSON_HEADERS: [(HeaderName, HeaderValue); 1] = [(
     http::header::CONTENT_TYPE,
     HeaderValue::from_static("application/json"),
 )];
+
+pub fn dont_cache<T>(headers: &[(HeaderName, HeaderValue)], response: T) -> (HeaderMap, T)
+where
+    T: IntoResponse,
+{
+    let mut with_cache_control = HeaderMap::new();
+
+    for (name, value) in headers {
+        with_cache_control.insert(name, value.clone());
+    }
+
+    with_cache_control.insert(
+        http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+
+    (with_cache_control, response)
+}
+
+pub fn cache_for<T>(headers: &[(HeaderName, HeaderValue)], response: T, time: u32) -> (HeaderMap, T)
+where
+    T: IntoResponse,
+{
+    let mut with_cache_control = HeaderMap::new();
+
+    for (name, value) in headers {
+        with_cache_control.insert(name, value.clone());
+    }
+
+    with_cache_control.insert(
+        http::header::CACHE_CONTROL,
+        HeaderValue::from_str(&format!("public,max-age={time}")).expect("valid cache control"),
+    );
+
+    (with_cache_control, response)
+}

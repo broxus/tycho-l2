@@ -17,7 +17,7 @@ use governor::clock::DefaultClock;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
 use proof_api_util::api::{
-    get_version, prepare_open_api, ApiRouterExt, OpenApiConfig, JSON_HEADERS,
+    cache_for, dont_cache, get_version, prepare_open_api, ApiRouterExt, OpenApiConfig, JSON_HEADERS,
 };
 use proof_api_util::serde_helpers::TonAddr;
 use schemars::JsonSchema;
@@ -143,7 +143,7 @@ async fn get_proof_chain_v1(
                 })
                 .unwrap();
 
-                (JSON_HEADERS, axum::body::Bytes::from(data)).into_response()
+                cache_for(&JSON_HEADERS, axum::body::Bytes::from(data), 604800).into_response()
             })
             .await
         }
@@ -178,5 +178,9 @@ fn res_error(error: ErrorResponse) -> Response {
     };
 
     let data = serde_json::to_vec(&error).unwrap();
-    (status, JSON_HEADERS, axum::body::Bytes::from(data)).into_response()
+    (
+        status,
+        dont_cache(&JSON_HEADERS, axum::body::Bytes::from(data)),
+    )
+        .into_response()
 }
