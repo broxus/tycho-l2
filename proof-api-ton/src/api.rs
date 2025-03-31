@@ -6,8 +6,9 @@ use std::time::Duration;
 use aide::axum::routing::get_with;
 use aide::axum::ApiRouter;
 use aide::transform::TransformOperation;
+use axum::extract::ConnectInfo;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Router};
 use everscale_types::boc::Boc;
@@ -25,6 +26,7 @@ use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 use tycho_util::sync::rayon_run;
+use tycho_util::FastHashSet;
 
 use crate::client::TonClient;
 
@@ -32,7 +34,8 @@ use crate::client::TonClient;
 pub struct ApiConfig {
     pub listen_addr: SocketAddr,
     pub public_url: Option<String>,
-    pub rate_limit: u32,
+    pub rate_limit: NonZeroU32,
+    pub whitelist: Vec<IpAddr>,
 }
 
 impl Default for ApiConfig {
@@ -41,13 +44,15 @@ impl Default for ApiConfig {
         Self {
             listen_addr: (Ipv4Addr::LOCALHOST, 8080).into(),
             public_url: None,
-            rate_limit: 2,
+            rate_limit: unsafe { NonZeroU32::new_unchecked(400) },
+            whitelist: Vec::new(),
         }
     }
 }
 
 pub struct AppState {
     client: TonClient,
+    whitelist: FastHashSet<IpAddr>,
     governor: RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>,
 }
 
@@ -74,12 +79,15 @@ pub fn build_api(config: &ApiConfig, client: TonClient) -> Router {
                 .layer(TimeoutLayer::new(Duration::from_secs(10))),
         );
 
-    let quota = Quota::per_second(unsafe { NonZeroU32::new_unchecked(config.rate_limit) })
-        .allow_burst(unsafe { NonZeroU32::new_unchecked(config.rate_limit) });
+    let quota = Quota::per_second(config.rate_limit).allow_burst(config.rate_limit);
     let governor: RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock> =
         governor::RateLimiter::dashmap(quota);
 
-    let state = Arc::new(AppState { client, governor });
+    let state = Arc::new(AppState {
+        client,
+        governor,
+        whitelist: config.whitelist.iter().cloned().collect(),
+    });
 
     public_api
         .finish_api(&mut open_api)
@@ -118,20 +126,12 @@ impl schemars::JsonSchema for TxHash {
 }
 
 async fn get_proof_chain_v1(
-    headers: Option<HeaderMap>,
     State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Path((TonAddr(address), lt, TxHash(tx_hash))): Path<(TonAddr, u64, TxHash)>,
 ) -> Response {
-    let ip = headers
-        .and_then(|headers| {
-            headers
-                .get("CF-Connecting-IP")
-                .and_then(|hv| hv.to_str().ok())
-                .and_then(|s| s.parse::<IpAddr>().ok())
-        })
-        .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
-
-    if state.governor.check_key(&ip).is_err() {
+    let ip = addr.ip();
+    if !state.whitelist.contains(&ip) && state.governor.check_key(&ip).is_err() {
         return res_error(ErrorResponse::LimitExceed);
     }
 

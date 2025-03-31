@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -67,7 +68,8 @@ impl Cmd {
 
         let api = Api::bind(
             config.api.listen_addr,
-            proof_api_ton::api::build_api(&config.api, client),
+            proof_api_ton::api::build_api(&config.api, client)
+                .into_make_service_with_connect_info::<SocketAddr>(),
         )
         .await
         .context("failed to bind API service")?;
