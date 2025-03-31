@@ -28,6 +28,7 @@ everscale-types = { version = "0.1.2", default-features = false }
 fdlimit = "0.3"
 futures-util = "0.3.31"
 generic-array = "0.14"
+governor = "0.10.0"
 http = "1.3.1"
 humantime = "2.2"
 num-traits = "0.2"
