@@ -19,8 +19,8 @@ impl ServiceConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerConfig {
-    pub left_client_url: ClientType,
-    pub right_client_url: ClientType,
+    pub left_client: ClientType,
+    pub right_client: ClientType,
     pub block_provider: BlockProviderConfig,
 }
 
