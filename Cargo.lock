@@ -852,7 +852,7 @@ dependencies = [
 [[package]]
 name = "everscale-types"
 version = "0.1.2"
-source = "git+https://github.com/broxus/everscale-types.git?rev=88dd2242c7679b752d695f8c5e8f7352c939a98c#88dd2242c7679b752d695f8c5e8f7352c939a98c"
+source = "git+https://github.com/broxus/everscale-types.git?rev=ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353#ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353"
 dependencies = [
  "ahash",
  "anyhow",
@@ -881,7 +881,7 @@ dependencies = [
 [[package]]
 name = "everscale-types-proc"
 version = "0.1.5"
-source = "git+https://github.com/broxus/everscale-types.git?rev=88dd2242c7679b752d695f8c5e8f7352c939a98c#88dd2242c7679b752d695f8c5e8f7352c939a98c"
+source = "git+https://github.com/broxus/everscale-types.git?rev=ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353#ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2916,6 +2916,7 @@ dependencies = [
  "everscale-types",
  "futures-util",
  "nekoton-abi",
+ "num-traits",
  "parking_lot",
  "proof-api-util",
  "reqwest",

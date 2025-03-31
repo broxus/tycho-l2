@@ -152,12 +152,12 @@ impl LiteClient {
 
     pub async fn get_account(
         &self,
-        block_id: BlockId,
-        account: StdAddr,
+        block_id: &BlockId,
+        account: &StdAddr,
     ) -> Result<proto::AccountState> {
         self.query::<_, proto::AccountState>(proto::rpc::GetAccountState {
-            id: block_id,
-            account,
+            id: *block_id,
+            account: account.clone(),
         })
         .await
     }

@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
             _ => unreachable!(),
         };
 
-        let config = client.get_config().await?;
+        let config = client.get_latest_config().await?;
 
         let context = ExecutionContextBuilder::new(&account)
             .with_config(config.config)

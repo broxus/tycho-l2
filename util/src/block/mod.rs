@@ -3,8 +3,8 @@ use everscale_types::cell::Lazy;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{
-    BlockId, BlockIdShort, BlockSignature, CurrencyCollection, ShardIdent, ValidatorBaseInfo,
-    ValidatorDescription, ValidatorSet,
+    Block, BlockId, BlockIdShort, BlockSignature, BlockchainConfig, CurrencyCollection, ShardIdent,
+    ValidatorBaseInfo, ValidatorSet,
 };
 use everscale_types::prelude::*;
 
@@ -32,6 +32,7 @@ pub trait BlockchainBlock: for<'a> Load<'a> {
 }
 
 pub trait BlockchainBlockInfo: for<'a> Load<'a> {
+    fn is_key_block(&self) -> bool;
     fn end_lt(&self) -> u64;
     fn prev_ref(&self) -> &Cell;
 }
@@ -49,6 +50,7 @@ pub trait BlockchainBlockMcExtra: for<'a> Load<'a> {
     fn load_top_shard_block_ids(&self) -> Result<Vec<BlockIdShort>, Error>;
     fn find_shard_seqno(&self, shard_ident: ShardIdent) -> Result<u32, Error>;
     fn visit_all_shard_hashes(&self) -> Result<(), Error>;
+    fn config(&self) -> Option<&BlockchainConfig>;
 }
 
 pub trait BlockchainBlockSignatures: for<'a> Load<'a> {
@@ -189,6 +191,56 @@ where
 
     let signatures = Dict::try_from_sorted_slice(&result)?;
     signatures.into_root().ok_or(Error::EmptyProof)
+}
+
+pub fn check_signatures<I>(
+    block_id: &BlockId,
+    signatures: I,
+    vset: &ValidatorSet,
+) -> Result<(), Error>
+where
+    I: IntoIterator<Item = Result<BlockSignature, Error>>,
+{
+    // Collect signatures into a map.
+    let mut signatures = signatures
+        .into_iter()
+        .map(|x| x.map(|item| (item.node_id_short, item.signature)))
+        .collect::<Result<HashMap<_, _>, _>>()?;
+
+    let to_sign = Block::build_data_for_sign(block_id);
+
+    let mut weight = 0u64;
+    for node in &vset.list {
+        let node_id_short = tl_proto::hash(everscale_crypto::tl::PublicKey::Ed25519 {
+            key: node.public_key.as_ref(),
+        });
+        let node_id_short = HashBytes::wrap(&node_id_short);
+
+        if let Some(signature) = signatures.remove(node_id_short) {
+            if !node.verify_signature(&to_sign, &signature) {
+                return Err(Error::InvalidSignature);
+            }
+
+            weight = weight.checked_add(node.weight).ok_or(Error::IntOverflow)?;
+        }
+    }
+
+    // All signatures must be used.
+    if !signatures.is_empty() {
+        return Err(Error::InvalidData);
+    }
+
+    // Check that signature weight is enough.
+    match (weight.checked_mul(3), vset.total_weight.checked_mul(2)) {
+        (Some(weight_x3), Some(total_weight_x2)) => {
+            if weight_x3 > total_weight_x2 {
+                Ok(())
+            } else {
+                Err(Error::InvalidData)
+            }
+        }
+        _ => Err(Error::IntOverflow),
+    }
 }
 
 /// Build merkle proof cell which contains a proof chain in its root.
@@ -343,6 +395,45 @@ where
     Ok(pruned_block)
 }
 
+pub fn make_key_block_proof<M>(block_root: Cell, with_prev_vset: bool) -> Result<Cell, Error>
+where
+    M: BlockchainModels,
+{
+    let usage_tree = UsageTree::new(UsageTreeMode::OnDataAccess);
+
+    let tracked_root = usage_tree.track(&block_root);
+    let raw_block = tracked_root.parse::<M::Block>()?;
+
+    // Block info is required for key blocks to find the previous key block.
+    // Only block info root cell is required (prev_ref is ignored).
+    raw_block.load_info()?;
+
+    // Access key block config.
+    let extra = raw_block.load_extra()?;
+    let custom = extra.load_custom()?.ok_or(Error::CellUnderflow)?;
+    let config = custom.config().ok_or(Error::CellUnderflow)?;
+
+    let current_vset = config.get_raw_cell_ref(34)?.ok_or(Error::CellUnderflow)?;
+    current_vset.touch_recursive();
+
+    if with_prev_vset {
+        if let Some(prev_vset) = config.get_raw_cell_ref(32)? {
+            prev_vset.touch_recursive();
+        }
+    }
+
+    // Build block proof.
+    let pruned_block = MerkleProof::create(block_root.as_ref(), usage_tree)
+        .prune_big_cells(true)
+        .build_raw_ext(Cell::empty_context())?;
+
+    if pruned_block.hash(0) != block_root.hash(0) {
+        return Err(Error::InvalidData);
+    }
+
+    Ok(pruned_block)
+}
+
 pub struct McProofForShard {
     pub root: Cell,
     pub latest_shard_seqno: u32,
@@ -435,37 +526,6 @@ where
     }
 
     Ok(Some(pruned_block))
-}
-
-pub fn check_signatures(
-    signatures: &Vec<BlockSignature>,
-    list: &[ValidatorDescription],
-    data: &[u8],
-) -> Result<u64, Error> {
-    // Collect nodes by short id
-    let mut unique_nodes = HashMap::<[u8; 32], &ValidatorDescription>::with_capacity_and_hasher(
-        list.len(),
-        Default::default(),
-    );
-
-    for node in list {
-        let node_id_short = tl_proto::hash(everscale_crypto::tl::PublicKey::Ed25519 {
-            key: node.public_key.as_ref(),
-        });
-        unique_nodes.insert(node_id_short, node);
-    }
-
-    let mut weight = 0;
-    for value in signatures {
-        if let Some(node) = unique_nodes.get(&value.node_id_short) {
-            if !node.verify_signature(data, &value.signature) {
-                return Err(Error::InvalidSignature);
-            }
-            weight += node.weight;
-        }
-    }
-
-    Ok(weight)
 }
 
 fn find_shard_descr(mut root: &'_ DynCell, mut prefix: u64) -> Result<CellSlice<'_>, Error> {

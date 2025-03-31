@@ -3,7 +3,10 @@ use everscale_types::boc::{Boc, BocRepr};
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{BlockSignatures, BlockchainConfig};
 use everscale_types::prelude::Load;
-use proof_api_util::block::{BaseBlockProof, BlockchainBlock, BlockchainModels, TychoModels};
+use proof_api_util::block::{
+    BaseBlockProof, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
+    BlockchainModels, TychoModels,
+};
 use sync_service::utils::jrpc_client::JrpcClient;
 
 #[tokio::main]
@@ -35,12 +38,12 @@ async fn main() -> Result<()> {
 
         let block = block.parse::<<TychoModels as BlockchainModels>::Block>()?;
 
-        let custom = block.load_extra()?.custom.context("key block not full")?;
+        let custom = block
+            .load_extra()?
+            .load_custom()?
+            .context("key block not full")?;
 
-        let mut slice = custom.as_slice()?;
-        slice.only_last(256, 1)?;
-
-        let blockchain_config = BlockchainConfig::load_from(&mut slice)?;
+        let blockchain_config = custom.config().context("expected key block")?;
 
         let v_set = blockchain_config.get_current_validator_set()?;
         tracing::info!(?v_set);

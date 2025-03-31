@@ -1,11 +1,11 @@
-use std::str::FromStr;
-
 use anyhow::Result;
 use everscale_types::boc::Boc;
-use everscale_types::cell::Load;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{Block, BlockchainConfig, OptionalAccount, StdAddr};
-use proof_api_util::block::{check_signatures, BlockchainBlock, BlockchainModels, TonModels};
+use everscale_types::models::{BlockIdShort, BlockchainConfig, OptionalAccount};
+use proof_api_util::block::{
+    check_signatures, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
+    BlockchainModels, TonModels,
+};
 use ton_lite_client::{proto, LiteClient, LiteClientConfig, TonGlobalConfig};
 
 #[tokio::main]
@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
         let (id, key_block) = {
             let seqno = mc_block.load_info()?.prev_key_block_seqno;
 
-            let short_id = everscale_types::models::BlockIdShort {
+            let short_id = BlockIdShort {
                 shard: mc_block_id.shard,
                 seqno,
             };
@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
         // Prev key block
         let prev_id = {
             let seqno = key_block.load_info()?.prev_key_block_seqno;
-            let short_id = everscale_types::models::BlockIdShort {
+            let short_id = BlockIdShort {
                 shard: mc_block_id.shard,
                 seqno,
             };
@@ -85,19 +85,14 @@ async fn main() -> Result<()> {
                 .cell
                 .parse::<<TonModels as BlockchainModels>::Block>()?;
 
-            let custom = block.load_extra()?.custom.expect("should exist");
-
-            let mut slice = custom.as_slice()?;
-            slice.only_last(256, 1)?;
-
-            let blockchain_config = BlockchainConfig::load_from(&mut slice)?;
-            blockchain_config.get_current_validator_set()?
+            let custom = block.load_extra()?.load_custom()?.expect("should exist");
+            let config = custom.config().expect("expected key block");
+            config.get_current_validator_set()?
         };
 
-        let to_sign = Block::build_data_for_sign(&id);
         let signatures = key_block_proof.signatures.signatures;
 
-        check_signatures(&signatures, &v_set.list, &to_sign)?;
+        check_signatures(&id, signatures.into_iter().map(Ok), &v_set)?;
     }
 
     // Get blockchain config
@@ -119,10 +114,8 @@ async fn main() -> Result<()> {
         let mc_block_id = client.get_last_mc_block_id().await?;
         tracing::info!(?mc_block_id);
 
-        let addr = StdAddr::from_str(
-            "0:69884128d07de140f313e1238557261f4e5f849315df3eadc7b56961356bdf61",
-        )?;
-        let state = client.get_account(mc_block_id, addr).await?;
+        let addr = "0:69884128d07de140f313e1238557261f4e5f849315df3eadc7b56961356bdf61".parse()?;
+        let state = client.get_account(&mc_block_id, &addr).await?;
         let cell = Boc::decode(&state.state)?;
 
         let account = cell.parse::<OptionalAccount>()?;

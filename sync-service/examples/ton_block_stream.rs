@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sync_service::provider::{BlockProviderConfig, KeyBlockProvider};
+use sync_service::client::{BlockProviderConfig, KeyBlockProvider};
 use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
 
 #[tokio::main]

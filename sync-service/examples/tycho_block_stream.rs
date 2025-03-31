@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sync_service::provider::{BlockProviderConfig, KeyBlockProvider};
+use sync_service::client::{BlockProviderConfig, KeyBlockProvider};
 use sync_service::utils::jrpc_client::JrpcClient;
 
 #[tokio::main]

@@ -29,6 +29,7 @@ futures-util = "0.3.31"
 generic-array = "0.14"
 http = "1.3.1"
 humantime = "2.2"
+num-traits = "0.2"
 parking_lot = "0.12.3"
 rand = "0.8"
 rayon = "1.10"
@@ -67,7 +68,7 @@ proof-api-util = { path = "./util" }
 ton-lite-client = { path = "./ton-lite-client" }
 
 [patch.crates-io]
-everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "88dd2242c7679b752d695f8c5e8f7352c939a98c" }
+everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353" }
 
 [workspace.lints.rust]
 future_incompatible = "warn"

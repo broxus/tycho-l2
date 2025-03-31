@@ -1,11 +1,13 @@
 use std::marker::PhantomData;
 
 use anyhow::{Context, Result};
-use everscale_types::models::{Account, BlockchainConfig, StdAddr};
+use everscale_types::models::{BlockId, BlockchainConfig, StdAddr};
 use everscale_types::prelude::*;
-use reqwest::Url;
+use reqwest::{IntoUrl, Url};
 use serde::{Deserialize, Serialize};
 use tycho_util::serde_helpers;
+
+use crate::util::account::AccountStateResponse;
 
 pub struct JrpcClient {
     client: reqwest::Client,
@@ -13,7 +15,7 @@ pub struct JrpcClient {
 }
 
 impl JrpcClient {
-    pub fn new(base_url: Url) -> Result<Self> {
+    pub fn new<U: IntoUrl>(base_url: U) -> Result<Self> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::CONTENT_TYPE,
@@ -25,14 +27,16 @@ impl JrpcClient {
             .build()
             .context("failed to build http client")?;
 
-        Ok(Self { client, base_url })
+        Ok(Self {
+            client,
+            base_url: base_url.into_url()?,
+        })
     }
 
     pub async fn send_message(&self, message: &DynCell) -> Result<()> {
         #[derive(Serialize)]
         struct Params<'a> {
-            // TODO: Revert this line once the fix is merged:
-            // #[serde(with = "Boc")]
+            #[serde(with = "Boc")]
             message: &'a DynCell,
         }
 
@@ -44,7 +48,49 @@ impl JrpcClient {
         .context("failed to send message")
     }
 
-    pub async fn get_config(&self) -> Result<LatestBlockchainConfigResponse> {
+    pub async fn get_transactions(
+        &self,
+        account: &StdAddr,
+        last_transaction_lt: Option<u64>,
+        limit: u8,
+    ) -> Result<Vec<String>> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Params<'a> {
+            account: &'a StdAddr,
+            #[serde(with = "serde_helpers::string")]
+            last_transaction_lt: u64,
+            limit: u8,
+        }
+
+        self.post(&JrpcRequest {
+            method: "getTransactionsList",
+            params: &Params {
+                account,
+                last_transaction_lt: last_transaction_lt.unwrap_or(u64::MAX),
+                limit,
+            },
+        })
+        .await
+        .context("failed to get transactions list")
+    }
+
+    pub async fn get_dst_transaction(&self, message_hash: &HashBytes) -> Result<Option<String>> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Params<'a> {
+            message_hash: &'a HashBytes,
+        }
+
+        self.post(&JrpcRequest {
+            method: "getDstTransaction",
+            params: &Params { message_hash },
+        })
+        .await
+        .context("failed to get dst transaction")
+    }
+
+    pub async fn get_latest_config(&self) -> Result<LatestBlockchainConfigResponse> {
         self.post(&JrpcRequest {
             method: "getBlockchainConfig",
             params: &(),
@@ -53,32 +99,38 @@ impl JrpcClient {
         .context("failed to get blockchain config")
     }
 
-    pub async fn get_latest_key_block(&self) -> Result<LatestKeyBlockResponse> {
-        self.post(&JrpcRequest {
-            method: "getLatestKeyBlock",
-            params: &(),
-        })
-        .await
-        .context("failed to get latest key block")
-    }
-
     pub async fn get_key_block_proof(&self, seqno: u32) -> Result<BlockProofResponse> {
+        #[derive(Debug, Serialize)]
+        struct Params {
+            seqno: u32,
+        }
+
         self.post(&JrpcRequest {
             method: "getKeyBlockProof",
-            params: &KeyBlockProofRequest { seqno },
+            params: &Params { seqno },
         })
         .await
+        .context("failed to get key block proof")
     }
 
-    pub async fn get_account(&self, address: &StdAddr) -> Result<AccountStateResponse> {
+    pub async fn get_account_state(
+        &self,
+        address: &StdAddr,
+        last_transaction_lt: Option<u64>,
+    ) -> Result<AccountStateResponse> {
         #[derive(Serialize)]
         struct Params<'a> {
             address: &'a StdAddr,
+            #[serde(default, with = "serde_helpers::option_string")]
+            last_transaction_lt: Option<u64>,
         }
 
         self.post(&JrpcRequest {
             method: "getContractState",
-            params: &Params { address },
+            params: &Params {
+                address,
+                last_transaction_lt,
+            },
         })
         .await
         .context("failed to get account state")
@@ -97,18 +149,13 @@ impl JrpcClient {
             .await?;
 
         let res = response.text().await?;
-        tracing::debug!(res);
+        tracing::trace!(res);
 
         match serde_json::from_str(&res).context("invalid JRPC response")? {
             JrpcResponse::Success(res) => Ok(res),
             JrpcResponse::Err(err) => anyhow::bail!(err),
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct KeyBlockProofRequest {
-    pub seqno: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -121,69 +168,11 @@ pub struct LatestBlockchainConfigResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct LatestKeyBlockResponse {
-    pub block: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct BlockProofResponse {
-    pub proof: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
-#[allow(unused)]
-pub enum AccountStateResponse {
-    NotExists {
-        timings: GenTimings,
-    },
-    #[serde(rename_all = "camelCase")]
-    Exists {
-        #[serde(deserialize_with = "deserialize_account")]
-        account: Box<Account>,
-        timings: GenTimings,
-        last_transaction_id: LastTransactionId,
-    },
-    Unchanged {
-        timings: GenTimings,
-    },
-}
-
-fn deserialize_account<'de, D>(deserializer: D) -> Result<Box<Account>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use everscale_types::cell::Load;
-    use serde::de::Error;
-
-    fn read_account(cell: Cell) -> Result<Box<Account>, everscale_types::error::Error> {
-        let s = &mut cell.as_slice()?;
-        Ok(Box::new(Account {
-            address: <_>::load_from(s)?,
-            storage_stat: <_>::load_from(s)?,
-            last_trans_lt: <_>::load_from(s)?,
-            balance: <_>::load_from(s)?,
-            state: <_>::load_from(s)?,
-        }))
-    }
-
-    Boc::deserialize(deserializer).and_then(|cell| read_account(cell).map_err(Error::custom))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenTimings {
-    #[serde(with = "serde_helpers::string")]
-    pub gen_lt: u64,
-    pub gen_utime: u32,
-}
-
-#[derive(Deserialize)]
-#[allow(unused)]
-pub struct LastTransactionId {
-    #[serde(with = "serde_helpers::string")]
-    pub lt: u64,
-    pub hash: HashBytes,
+pub struct BlockProofResponse {
+    #[serde(default, with = "serde_helpers::option_string")]
+    pub block_id: Option<BlockId>,
+    pub proof: Option<String>,
 }
 
 struct JrpcRequest<'a, T> {
@@ -276,5 +265,35 @@ where
             ResponseData::Result(result) => JrpcResponse::Success(result),
             ResponseData::Error(error) => JrpcResponse::Err(error),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn jrpc_works() -> Result<()> {
+        let client = JrpcClient::new("https://rpc-testnet.tychoprotocol.com/rpc")?;
+
+        let latest_config = client.get_latest_config().await?;
+        println!("Seqno: {}", latest_config.seqno);
+
+        let addr = "-1:af8f5f9edad5996c6a84c8fdd64209d2dcbe603fa69467ec4368f0d13c5c585c".parse()?;
+        let txs = client.get_transactions(&addr, None, 10).await?;
+        assert_eq!(txs.len(), 10);
+
+        let msg = "0000000000000000000000000000000000000000000000000000000000000000".parse()?;
+        let tx = client.get_dst_transaction(&msg).await?;
+        assert!(tx.is_none());
+
+        let msg = "1b37f42ac035155b862c1b270c36da59bb11e8cb3701c3fb72fe8e3504169eca".parse()?;
+        let tx = client.get_dst_transaction(&msg).await?;
+        assert!(tx.is_some());
+
+        let state = client.get_account_state(&addr, None).await?;
+        matches!(state, AccountStateResponse::Exists { .. });
+
+        Ok(())
     }
 }

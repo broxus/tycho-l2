@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
-    BlockId, BlockRef, BlockchainConfig, ShardIdent, StdAddr, ValidatorSet,
-};
+use everscale_types::models::{BlockId, BlockRef, ShardIdent, StdAddr, ValidatorSet};
 use everscale_types::prelude::*;
-use proof_api_util::block::{self, BlockchainBlock, BlockchainModels, TonModels};
+use proof_api_util::block::{
+    self, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels,
+    TonModels,
+};
 use ton_lite_client::{proto, LiteClient};
 
 #[derive(Clone)]
@@ -168,15 +169,12 @@ fn parse_current_vset<T: AsRef<[u8]>>(config_proof: T) -> Result<ValidatorSet> {
         .cell
         .parse::<<TonModels as BlockchainModels>::Block>()?;
 
-    let custom = block
+    block
         .load_extra()?
-        .custom
-        .context("config proof without custom")?;
-
-    let mut cs = custom.as_slice()?;
-    cs.only_last(256, 1)?;
-
-    BlockchainConfig::load_from(&mut cs)?
+        .load_custom()?
+        .context("config proof without custom")?
+        .config()
+        .context("expected key block")?
         .get_current_validator_set()
         .context("failed to load current vset")
 }

@@ -1,6 +1,7 @@
 use everscale_types::error::Error;
 use everscale_types::models::{
-    BlockIdShort, BlockSignature, GlobalVersion, ShardHashes, ShardIdent, ValidatorBaseInfo,
+    BlockIdShort, BlockSignature, BlockchainConfig, GlobalVersion, ShardHashes, ShardIdent,
+    ValidatorBaseInfo,
 };
 use everscale_types::prelude::*;
 
@@ -44,6 +45,7 @@ impl BlockchainBlock for TonBlock {
 }
 
 pub struct TonBlockInfo {
+    pub is_key_block: bool,
     pub shard: ShardIdent,
     pub gen_utime: u32,
     pub start_lt: u64,
@@ -71,6 +73,8 @@ impl<'a> Load<'a> for TonBlockInfo {
         if seqno == 0 {
             return Err(Error::InvalidData);
         }
+
+        let is_key_block = packed_flags & 0b00000010 != 0;
 
         let vert_seqno = slice.load_u32()?;
         let shard = ShardIdent::load_from(slice)?;
@@ -107,6 +111,7 @@ impl<'a> Load<'a> for TonBlockInfo {
         }
 
         Ok(Self {
+            is_key_block,
             shard,
             gen_utime,
             start_lt,
@@ -120,6 +125,10 @@ impl<'a> Load<'a> for TonBlockInfo {
 }
 
 impl BlockchainBlockInfo for TonBlockInfo {
+    fn is_key_block(&self) -> bool {
+        self.is_key_block
+    }
+
     fn end_lt(&self) -> u64 {
         self.end_lt
     }
@@ -159,11 +168,36 @@ impl BlockchainBlockExtra for TonBlockExtra {
     }
 }
 
-#[derive(Load)]
-#[tlb(tag = "#cca5")]
 pub struct TonBlockMcExtra {
-    _key_block: bool,
     shard_hashes: ShardHashes,
+    config: Option<BlockchainConfig>,
+}
+
+impl TonBlockMcExtra {
+    const TAG: u16 = 0xcca5;
+}
+
+impl<'a> Load<'a> for TonBlockMcExtra {
+    fn load_from(slice: &mut CellSlice<'a>) -> Result<Self, Error> {
+        if slice.load_u16()? != Self::TAG {
+            return Err(Error::InvalidTag);
+        }
+
+        let with_config = slice.load_bit()?;
+        let shard_hashes = ShardHashes::load_from(slice)?;
+
+        let config = if with_config {
+            slice.only_last(256, 1)?;
+            Some(BlockchainConfig::load_from(slice)?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            shard_hashes,
+            config,
+        })
+    }
 }
 
 impl BlockchainBlockMcExtra for TonBlockMcExtra {
@@ -197,6 +231,10 @@ impl BlockchainBlockMcExtra for TonBlockMcExtra {
             item?;
         }
         Ok(())
+    }
+
+    fn config(&self) -> Option<&BlockchainConfig> {
+        self.config.as_ref()
     }
 }
 

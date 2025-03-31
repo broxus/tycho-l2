@@ -1,9 +1,13 @@
 use std::sync::OnceLock;
 
+pub mod client;
 pub mod config;
-pub mod provider;
-pub mod uploader;
-pub mod utils;
+pub mod service;
+
+pub mod util {
+    pub mod account;
+    pub mod jrpc_client;
+}
 
 pub static BIN_VERSION: &str = env!("SYNC_SERVICE_VERSION");
 pub static BIN_BUILD: &str = env!("SYNC_SERVICE_BUILD");

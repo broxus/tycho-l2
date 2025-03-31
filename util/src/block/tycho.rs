@@ -1,7 +1,7 @@
 use everscale_types::error::Error;
 use everscale_types::models::{
-    BlockIdShort, BlockSignature, ConsensusInfo, GlobalVersion, ShardHashes, ShardIdent,
-    ValidatorBaseInfo,
+    BlockIdShort, BlockSignature, BlockchainConfig, ConsensusInfo, GlobalVersion, ShardHashes,
+    ShardIdent, ValidatorBaseInfo,
 };
 use everscale_types::prelude::*;
 
@@ -45,6 +45,7 @@ impl BlockchainBlock for TychoBlock {
 }
 
 pub struct TychoBlockInfo {
+    pub is_key_block: bool,
     pub seqno: u32,
     pub shard: ShardIdent,
     pub gen_utime: u32,
@@ -73,6 +74,8 @@ impl<'a> Load<'a> for TychoBlockInfo {
         if seqno == 0 {
             return Err(Error::InvalidData);
         }
+
+        let is_key_block = packed_flags & 0b00000010 != 0;
 
         let vert_seqno = slice.load_u32()?;
         let shard = ShardIdent::load_from(slice)?;
@@ -111,6 +114,7 @@ impl<'a> Load<'a> for TychoBlockInfo {
         }
 
         Ok(Self {
+            is_key_block,
             seqno,
             shard,
             gen_utime,
@@ -125,6 +129,10 @@ impl<'a> Load<'a> for TychoBlockInfo {
 }
 
 impl BlockchainBlockInfo for TychoBlockInfo {
+    fn is_key_block(&self) -> bool {
+        self.is_key_block
+    }
+
     fn end_lt(&self) -> u64 {
         self.end_lt
     }
@@ -164,11 +172,36 @@ impl BlockchainBlockExtra for TychoBlockExtra {
     }
 }
 
-#[derive(Load)]
-#[tlb(tag = "#cca5")]
 pub struct TychoBlockMcExtra {
-    pub key_block: bool,
-    pub shard_hashes: ShardHashes,
+    shard_hashes: ShardHashes,
+    config: Option<BlockchainConfig>,
+}
+
+impl TychoBlockMcExtra {
+    const TAG: u16 = 0xcca5;
+}
+
+impl<'a> Load<'a> for TychoBlockMcExtra {
+    fn load_from(slice: &mut CellSlice<'a>) -> Result<Self, Error> {
+        if slice.load_u16()? != Self::TAG {
+            return Err(Error::InvalidTag);
+        }
+
+        let with_config = slice.load_bit()?;
+        let shard_hashes = ShardHashes::load_from(slice)?;
+
+        let config = if with_config {
+            slice.only_last(256, 1)?;
+            Some(BlockchainConfig::load_from(slice)?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            shard_hashes,
+            config,
+        })
+    }
 }
 
 impl BlockchainBlockMcExtra for TychoBlockMcExtra {
@@ -202,6 +235,10 @@ impl BlockchainBlockMcExtra for TychoBlockMcExtra {
             item?;
         }
         Ok(())
+    }
+
+    fn config(&self) -> Option<&BlockchainConfig> {
+        self.config.as_ref()
     }
 }
 

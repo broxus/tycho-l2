@@ -1,62 +1,56 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use clap::Parser;
-use std::path::PathBuf;
-use sync_service::config::{ClientType, ServiceConfig};
-use sync_service::provider::KeyBlockProviderClient;
-use sync_service::uploader::KeyBlockUploaderClient;
-use sync_service::utils::jrpc_client::JrpcClient;
-use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
-
-use crate::service::ServiceWorker;
+use sync_service::config::Config;
+use sync_service::service::Uploader;
 
 #[derive(Parser)]
 pub struct Cmd {
-    // Path to the TON global config.
+    // Path to the service config.
     #[clap(long)]
-    pub global_config: PathBuf,
-
-    // Path to the TON global config.
-    #[clap(long)]
-    pub service_config: PathBuf,
+    pub config: PathBuf,
 }
 
 impl Cmd {
     pub async fn run(self) -> Result<()> {
-        let global_config = TonGlobalConfig::load_from_file(self.global_config)?;
-        let ton_lite_client =
-            LiteClient::new(LiteClientConfig::default(), global_config.liteservers);
+        let config = Config::load_from_file(self.config)?;
+        anyhow::ensure!(!config.workers.is_empty(), "no workers specified");
 
-        let service_config = ServiceConfig::load_from_file(self.service_config)?;
+        let mut uploaders = Vec::new();
+        for worker in config.workers {
+            let left_client = worker.left.client.build_client()?;
+            let right_client = worker.right.client.build_client()?;
 
-        for config in service_config.workers {
-            let left_client: Box<dyn KeyBlockProviderClient + Send + Sync> =
-                match &config.left_client_url {
-                    ClientType::Ton => Box::new(ton_lite_client.clone()),
-                    ClientType::Tycho { url } => Box::new(JrpcClient::new(url.parse()?)?),
-                };
+            tracing::info!(
+                src = left_client.name(),
+                dst = right_client.name(),
+                "starting uploader",
+            );
+            let uploader = Uploader::new(
+                left_client.clone(),
+                right_client.clone(),
+                worker.right.uploader.clone(),
+            )
+            .await?;
+            uploaders.push(uploader);
 
-            let right_client: Box<dyn KeyBlockUploaderClient + Send + Sync> =
-                match &config.right_client_url {
-                    ClientType::Ton => Box::new(ton_lite_client.clone()),
-                    ClientType::Tycho { url } => Box::new(JrpcClient::new(url.parse()?)?),
-                };
-
-            let left_type = config.right_client_url.clone();
-            let right_type = config.right_client_url.clone();
-
-            let worker = ServiceWorker::new(left_client, right_client, config).await?;
-
-            let _handle = tokio::spawn(async move {
-                tracing::info!("worker {}->{} started", left_type, right_type);
-                if let Err(e) = worker.run().await {
-                    tracing::info!("worker {}->{} failed: {e}", left_type, right_type);
-                }
-                tracing::info!("worker {}->{} finished", left_type, right_type);
-            });
+            tracing::info!(
+                src = right_client.name(),
+                dst = left_client.name(),
+                "starting uploader",
+            );
+            let uploader =
+                Uploader::new(right_client, left_client, worker.left.uploader.clone()).await?;
+            uploaders.push(uploader);
         }
+        tracing::info!("all uploaders created");
 
-        futures_util::future::pending::<()>().await;
+        for uploader in uploaders {
+            tokio::task::spawn(uploader.run());
+        }
+        tracing::info!("all uploaders started");
 
-        Ok(())
+        futures_util::future::pending().await
     }
 }
