@@ -2913,6 +2913,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "clap",
+ "ed25519-dalek",
+ "everscale-crypto",
  "everscale-types",
  "futures-util",
  "nekoton-abi",

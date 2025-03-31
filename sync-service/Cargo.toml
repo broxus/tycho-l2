@@ -14,7 +14,9 @@ anyhow = { workspace = true }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
-everscale-types = { workspace = true, features = ["tycho", "models", "base64", "serde"] }
+ed25519-dalek = { workspace = true }
+everscale-crypto = { workspace = true }
+everscale-types = { workspace = true, features = ["tycho", "abi", "models", "base64", "serde"] }
 futures-util = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }

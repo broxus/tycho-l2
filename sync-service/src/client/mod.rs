@@ -3,8 +3,11 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use everscale_types::cell::Cell;
-use everscale_types::models::{BlockId, BlockSignature, BlockchainConfig, StdAddr, ValidatorSet};
+use everscale_types::cell::Lazy;
+use everscale_types::models::{
+    BlockId, BlockSignature, BlockchainConfig, StdAddr, Transaction, ValidatorSet,
+};
+use everscale_types::prelude::*;
 use serde::Deserialize;
 
 pub use self::ton::TonClient;
@@ -18,6 +21,8 @@ mod tycho;
 pub trait NetworkClient: Send + Sync {
     fn name(&self) -> &str;
 
+    async fn get_signature_id(&self) -> Result<Option<i32>>;
+
     async fn get_latest_key_block_seqno(&self) -> Result<u32>;
 
     async fn get_blockchain_config(&self) -> Result<BlockchainConfig>;
@@ -29,60 +34,16 @@ pub trait NetworkClient: Send + Sync {
         account: &StdAddr,
         last_transaction_lt: Option<u64>,
     ) -> Result<AccountStateResponse>;
-}
 
-#[async_trait]
-impl<T: NetworkClient> NetworkClient for Box<T> {
-    fn name(&self) -> &str {
-        T::name(&*self)
-    }
-
-    async fn get_latest_key_block_seqno(&self) -> Result<u32> {
-        T::get_latest_key_block_seqno(&*self).await
-    }
-
-    async fn get_blockchain_config(&self) -> Result<BlockchainConfig> {
-        T::get_blockchain_config(&*self).await
-    }
-
-    async fn get_key_block(&self, seqno: u32) -> Result<KeyBlockData> {
-        T::get_key_block(&*self, seqno).await
-    }
-
-    async fn get_account_state(
+    async fn get_transactions(
         &self,
         account: &StdAddr,
-        last_transaction_lt: Option<u64>,
-    ) -> Result<AccountStateResponse> {
-        T::get_account_state(&*self, account, last_transaction_lt).await
-    }
-}
+        lt: u64,
+        hash: &HashBytes,
+        count: u8,
+    ) -> Result<Vec<Lazy<Transaction>>>;
 
-#[async_trait]
-impl<T: NetworkClient> NetworkClient for Arc<T> {
-    fn name(&self) -> &str {
-        T::name(&*self)
-    }
-
-    async fn get_latest_key_block_seqno(&self) -> Result<u32> {
-        T::get_latest_key_block_seqno(&*self).await
-    }
-
-    async fn get_blockchain_config(&self) -> Result<BlockchainConfig> {
-        T::get_blockchain_config(&*self).await
-    }
-
-    async fn get_key_block(&self, seqno: u32) -> Result<KeyBlockData> {
-        T::get_key_block(&*self, seqno).await
-    }
-
-    async fn get_account_state(
-        &self,
-        account: &StdAddr,
-        last_transaction_lt: Option<u64>,
-    ) -> Result<AccountStateResponse> {
-        T::get_account_state(&*self, account, last_transaction_lt).await
-    }
+    async fn send_message(&self, message: Cell) -> Result<()>;
 }
 
 #[derive(Debug)]

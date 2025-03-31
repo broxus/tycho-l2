@@ -3,15 +3,22 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use everscale_types::cell::HashBytes;
-use everscale_types::models::{Account, AccountState, BlockchainConfig, StdAddr};
+use everscale_crypto::ed25519;
+use everscale_types::cell::{HashBytes, Lazy};
+use everscale_types::models::{
+    Account, AccountState, BlockchainConfig, OwnedRelaxedMessage, RelaxedIntMsgInfo,
+    RelaxedMsgInfo, StdAddr,
+};
 use nekoton_abi::execution_context::ExecutionContextBuilder;
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use tycho_util::serde_helpers;
 
+use self::wallet::Wallet;
 use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;
+
+mod wallet;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UploaderConfig {
@@ -42,6 +49,7 @@ pub struct Uploader {
     blockchain_config: BlockchainConfig,
     /// Cache of key blocks from the `src` network.
     key_blocks_cache: BTreeMap<u32, Arc<KeyBlockData>>,
+    wallet: Wallet,
 }
 
 impl Uploader {
@@ -55,12 +63,24 @@ impl Uploader {
             .await
             .with_context(|| format!("failed to get blockchain config for {}", dst.name()))?;
 
+        let secret = ed25519::SecretKey::from_bytes(config.wallet_secret.0);
+        let keypair = Arc::new(ed25519::KeyPair::from(&secret));
+        let wallet = Wallet::new(config.wallet_address.workchain, keypair, dst.clone());
+        anyhow::ensure!(
+            *wallet.address() == config.wallet_address,
+            "wallet address mismatch for {}: expected={}, got={}",
+            dst.name(),
+            config.wallet_address,
+            wallet.address(),
+        );
+
         Ok(Self {
             src,
             dst,
             config,
             blockchain_config,
             key_blocks_cache: Default::default(),
+            wallet,
         })
     }
 
@@ -90,7 +110,34 @@ impl Uploader {
         };
 
         tracing::info!(block_id = %key_block.block_id, "sending key block");
+        self.send_key_block(key_block.clone())
+            .await
+            .context("failed to send key block")?;
 
+        let new_cache = self
+            .key_blocks_cache
+            .split_off(&key_block.prev_key_block_seqno);
+        self.key_blocks_cache = new_cache;
+        Ok(())
+    }
+
+    async fn send_key_block(&self, _key_block: Arc<KeyBlockData>) -> Result<()> {
+        let message = Lazy::new(&OwnedRelaxedMessage {
+            info: RelaxedMsgInfo::Int(RelaxedIntMsgInfo {
+                dst: self.wallet.address().clone().into(),
+                bounce: true,
+                ..Default::default()
+            }),
+            init: None,
+            body: Default::default(),
+            layout: None,
+        })?;
+
+        let tx = self.wallet.send_message(0x3, message, 60).await?;
+        tracing::info!(
+            tx_hash = %tx.repr_hash(),
+            "sent key block",
+        );
         Ok(())
     }
 
@@ -109,11 +156,6 @@ impl Uploader {
             match vset_utime_since.cmp(&current_vset_utime_since) {
                 // Skip and remember all key blocks newer than the current vset.
                 std::cmp::Ordering::Greater => {
-                    tracing::debug!(
-                        seqno = latest_seqno,
-                        vset_utime_since,
-                        "found new key block"
-                    );
                     latest_seqno = key_block.prev_key_block_seqno;
                     result = Some(key_block);
                 }
@@ -140,6 +182,12 @@ impl Uploader {
         // TODO: Add retries.
         let key_block = self.src.get_key_block(seqno).await.map(Arc::new)?;
         self.key_blocks_cache.insert(seqno, key_block.clone());
+
+        tracing::debug!(
+            seqno,
+            vset_utime_since = key_block.current_vset.utime_since,
+            "found new key block"
+        );
         Ok(key_block)
     }
 

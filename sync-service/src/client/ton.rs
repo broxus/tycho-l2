@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use everscale_types::boc::Boc;
+use everscale_types::cell::Lazy;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{
     BlockIdShort, BlockchainConfig, CurrencyCollection, OptionalAccount, ShardAccounts,
-    ShardHashes, ShardIdent, StdAddr,
+    ShardHashes, ShardIdent, StdAddr, Transaction,
 };
 use everscale_types::prelude::*;
 use proof_api_util::block::{
@@ -34,6 +35,10 @@ impl TonClient {
 impl NetworkClient for TonClient {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    async fn get_signature_id(&self) -> Result<Option<i32>> {
+        Ok(None)
     }
 
     async fn get_latest_key_block_seqno(&self) -> Result<u32> {
@@ -133,8 +138,6 @@ impl NetworkClient for TonClient {
         let account_state = self.rpc.get_account(&mc_block_id, account).await?;
 
         let proofs = parse_proofs(account_state.proof)?;
-        tracing::info!(gen_timings = ?proofs.timings);
-
         if account_state.state.is_empty() {
             return Ok(AccountStateResponse::NotExists {
                 timings: proofs.timings,
@@ -164,6 +167,44 @@ impl NetworkClient for TonClient {
             timings: proofs.timings,
             last_transaction_id,
         })
+    }
+
+    async fn get_transactions(
+        &self,
+        account: &StdAddr,
+        lt: u64,
+        hash: &HashBytes,
+        count: u8,
+    ) -> Result<Vec<Lazy<Transaction>>> {
+        use everscale_types::boc::de::{BocHeader, Options};
+
+        let res = self
+            .rpc
+            .get_transactions(account, lt, hash, count as u32)
+            .await?;
+
+        let header = BocHeader::decode(&res.transactions, &Options {
+            min_roots: None,
+            max_roots: None,
+        })
+        .context("failed to deserialize transactions")?;
+
+        let roots = header.roots().to_vec();
+        let cells = header.finalize(Cell::empty_context())?;
+
+        let mut result = Vec::with_capacity(roots.len());
+        for root in roots {
+            let tx = cells.get(root).context("tx root not found")?;
+            result.push(Lazy::from_raw(tx)?);
+        }
+
+        Ok(result)
+    }
+
+    async fn send_message(&self, message: Cell) -> Result<()> {
+        let status = self.rpc.send_message(Boc::encode(message)).await?;
+        anyhow::ensure!(status == 1, "message not sent");
+        Ok(())
     }
 }
 

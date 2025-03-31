@@ -1,8 +1,11 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use everscale_types::boc::BocRepr;
+use everscale_types::cell::Lazy;
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockSignatures, BlockchainConfig, StdAddr};
+use everscale_types::models::{
+    BlockSignatures, BlockchainConfig, GlobalCapability, StdAddr, Transaction,
+};
+use everscale_types::prelude::*;
 use proof_api_util::block::{
     BaseBlockProof, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
     BlockchainModels, TychoModels,
@@ -30,6 +33,15 @@ impl TychoClient {
 impl NetworkClient for TychoClient {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    async fn get_signature_id(&self) -> Result<Option<i32>> {
+        let current = self.rpc.get_latest_config().await?;
+        let global = current.config.get_global_version()?;
+        Ok(global
+            .capabilities
+            .contains(GlobalCapability::CapSignatureWithId)
+            .then_some(current.global_id))
     }
 
     async fn get_latest_key_block_seqno(&self) -> Result<u32> {
@@ -90,5 +102,30 @@ impl NetworkClient for TychoClient {
         self.rpc
             .get_account_state(account, last_transaction_lt)
             .await
+    }
+
+    async fn get_transactions(
+        &self,
+        account: &StdAddr,
+        lt: u64,
+        hash: &HashBytes,
+        count: u8,
+    ) -> Result<Vec<Lazy<Transaction>>> {
+        let transactions = self.rpc.get_transactions(account, Some(lt), count).await?;
+        let mut is_first = true;
+        let mut result = Vec::with_capacity(transactions.len());
+        for tx in transactions {
+            let tx = Boc::decode_base64(tx).context("failed to deserialize transaction")?;
+            if std::mem::take(&mut is_first) {
+                anyhow::ensure!(tx.repr_hash() == hash, "latest tx hash mismatch");
+            }
+
+            result.push(Lazy::from_raw(tx)?);
+        }
+        Ok(result)
+    }
+
+    async fn send_message(&self, message: Cell) -> Result<()> {
+        self.rpc.send_message(message.as_ref()).await
     }
 }

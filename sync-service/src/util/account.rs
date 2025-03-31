@@ -30,7 +30,7 @@ pub struct GenTimings {
     pub gen_utime: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct LastTransactionId {
     #[serde(with = "serde_helpers::string")]
     pub lt: u64,
