@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod cmd {
+    pub mod account;
     pub mod run;
 }
 
@@ -45,6 +46,7 @@ impl App {
     pub async fn run(self) -> Result<()> {
         match self.cmd {
             SubCmd::Run(cmd) => cmd.run().await,
+            SubCmd::Account(cmd) => cmd.run().await,
         }
     }
 }
@@ -52,4 +54,5 @@ impl App {
 #[derive(Subcommand)]
 enum SubCmd {
     Run(cmd::run::Cmd),
+    Account(cmd::account::Cmd),
 }

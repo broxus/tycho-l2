@@ -42,13 +42,22 @@ impl Cmd {
                 anyhow::bail!("config file already exists, use --force to overwrite");
             }
 
-            let config = NodeConfig::default();
+            let mut config = NodeConfig::default();
+            // Always disable RPC by default.
+            // TODO: Remove from light nodes.
+            config.rpc = None;
+
             std::fs::write(config_path, serde_json::to_string_pretty(&config).unwrap())?;
             return Ok(());
         }
 
-        let node_config = NodeConfig::from_file(self.base.config.as_ref().context("no config")?)
-            .context("failed to load node config")?;
+        let mut node_config =
+            NodeConfig::from_file(self.base.config.as_ref().context("no config")?)
+                .context("failed to load node config")?;
+
+        // Always disable RPC by default.
+        // TODO: Remove from light nodes.
+        node_config.rpc = None;
 
         tycho_util::cli::logger::init_logger(
             &node_config.logger_config,

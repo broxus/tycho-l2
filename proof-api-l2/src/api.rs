@@ -105,7 +105,7 @@ async fn get_proof_chain_v1(
 }
 
 fn get_proof_chain_v1_docs(op: TransformOperation<'_>) -> TransformOperation<'_> {
-    op.description("Enqueue the participant for the reward claim")
+    op.description("Build proof chain")
         .tag("proof-api-l2")
         .response::<200, axum::Json<ProofChainResponse>>()
         .response::<404, ()>()

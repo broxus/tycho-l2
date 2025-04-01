@@ -20,8 +20,8 @@ use self::wallet::Wallet;
 use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;
 
-mod lib_store;
-mod wallet;
+pub mod lib_store;
+pub mod wallet;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UploaderConfig {

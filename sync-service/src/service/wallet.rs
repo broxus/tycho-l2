@@ -249,7 +249,7 @@ struct Inner {
     client: Arc<dyn NetworkClient>,
 }
 
-fn make_state_init(pubkey: &ed25519_dalek::VerifyingKey) -> StateInit {
+pub fn make_state_init(pubkey: &ed25519_dalek::VerifyingKey) -> StateInit {
     StateInit {
         split_depth: None,
         special: None,
@@ -259,7 +259,7 @@ fn make_state_init(pubkey: &ed25519_dalek::VerifyingKey) -> StateInit {
     }
 }
 
-fn wallet_code() -> &'static Cell {
+pub fn wallet_code() -> &'static Cell {
     static CODE: OnceLock<Cell> = OnceLock::new();
     CODE.get_or_init(|| Boc::decode(include_bytes!("../../res/wallet_code.boc")).unwrap())
 }

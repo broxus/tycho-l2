@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
 use tycho_util::cli::logger::LoggerConfig;
 
+/// Run the API.
 #[derive(Parser)]
 pub struct Cmd {
     /// dump the template of the config
@@ -25,8 +26,8 @@ pub struct Cmd {
     pub force: bool,
 
     // Path to the TON global config.
-    #[clap(long)]
-    pub global_config: PathBuf,
+    #[clap(long, required_unless_present = "init_config")]
+    pub global_config: Option<PathBuf>,
 
     /// path to the node config
     #[clap(long, required_unless_present = "init_config")]
@@ -62,7 +63,7 @@ impl Cmd {
         let config = Config::load_from_file(self.config.as_ref().context("no config")?)?;
         tycho_util::cli::logger::init_logger(&config.logger_config, self.logger_config)?;
 
-        let global_config = TonGlobalConfig::load_from_file(self.global_config)?;
+        let global_config = TonGlobalConfig::load_from_file(self.global_config.unwrap())?;
         let lite_client = LiteClient::new(LiteClientConfig::default(), global_config.liteservers);
         let client = TonClient::new(lite_client);
 
