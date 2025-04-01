@@ -6,7 +6,9 @@ use anyhow::{Context, Result};
 use everscale_crypto::ed25519;
 use everscale_types::cell::{CellBuilder, HashBytes};
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{Account, AccountState, BlockchainConfig, StdAddr};
+use everscale_types::models::{
+    Account, AccountState, BlockchainConfig, ComputePhase, StdAddr, TxInfo,
+};
 use everscale_types::num::Tokens;
 use nekoton_abi::execution_context::ExecutionContextBuilder;
 use num_traits::ToPrimitive;
@@ -60,6 +62,7 @@ pub struct Uploader {
     /// Cache of key blocks from the `src` network.
     key_blocks_cache: BTreeMap<u32, Arc<KeyBlockData>>,
     wallet: Wallet,
+    min_bridge_state_lt: u64,
 }
 
 impl Uploader {
@@ -91,6 +94,7 @@ impl Uploader {
             blockchain_config,
             key_blocks_cache: Default::default(),
             wallet,
+            min_bridge_state_lt: 0,
         })
     }
 
@@ -132,7 +136,7 @@ impl Uploader {
         Ok(())
     }
 
-    async fn send_key_block(&self, key_block: Arc<KeyBlockData>) -> Result<()> {
+    async fn send_key_block(&mut self, key_block: Arc<KeyBlockData>) -> Result<()> {
         let key_block_proof = self.src.make_key_block_proof_to_sync(&key_block)?;
         let key_block_proof = CellBuilder::build_from(MerkleProof {
             hash: *key_block_proof.hash(0),
@@ -164,7 +168,8 @@ impl Uploader {
         );
 
         // Send key block.
-        self.wallet
+        let tx = self
+            .wallet
             .send_key_block(
                 key_block_proof,
                 &key_block.block_id.file_hash,
@@ -175,6 +180,28 @@ impl Uploader {
             )
             .await
             .context("failed to store key block proof into bridge contract")?;
+        tracing::debug!(
+            tx_hash = %tx.repr_hash(),
+            "found bridge tx",
+        );
+
+        // Check bridge transaction.
+        let tx = tx.load()?;
+        self.min_bridge_state_lt = tx.lt;
+
+        match tx.load_info()? {
+            TxInfo::Ordinary(info) => match info.compute_phase {
+                ComputePhase::Executed(compute) => {
+                    anyhow::ensure!(
+                        compute.success,
+                        "key block was rejected: exit_code={}",
+                        compute.exit_code
+                    );
+                }
+                ComputePhase::Skipped(_) => anyhow::bail!("key block was not applied"),
+            },
+            TxInfo::TickTock(_) => anyhow::bail!("unexpected tx info"),
+        }
 
         // Done
         Ok(())
@@ -231,8 +258,7 @@ impl Uploader {
     }
 
     async fn get_current_epoch_since(&self) -> Result<u32> {
-        // TODO: Add retries.
-        let account = self.get_bridge_account().await?;
+        let account = self.get_bridge_account().await;
 
         let context = ExecutionContextBuilder::new(&account)
             .with_config(self.blockchain_config.clone())
@@ -257,22 +283,38 @@ impl Uploader {
         get_utime_since().context("invalid getter output")
     }
 
-    async fn get_bridge_account(&self) -> Result<Box<Account>> {
-        match self
-            .dst
-            .get_account_state(&self.config.bridge_address, None)
-            .await
-            .context("failed to get bridge account")?
-        {
-            AccountStateResponse::Exists { account, .. } => {
-                anyhow::ensure!(
-                    matches!(&account.state, AccountState::Active(..)),
-                    "bridge account is not active"
-                );
-                Ok(account)
+    async fn get_bridge_account(&self) -> Box<Account> {
+        const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+        loop {
+            let res = wallet::get_state_with_retries(
+                self.dst.as_ref(),
+                &self.config.bridge_address,
+                None,
+            )
+            .await;
+
+            match res {
+                AccountStateResponse::Exists {
+                    account, timings, ..
+                } if timings.gen_lt >= self.min_bridge_state_lt => {
+                    if let AccountState::Active(..) = &account.state {
+                        return account;
+                    }
+                    tracing::warn!("bridge account is not active");
+                }
+                AccountStateResponse::Exists { .. } => {
+                    tracing::debug!("got old bridge account state");
+                }
+                AccountStateResponse::Unchanged { .. } => {
+                    tracing::warn!("got unexpected state response");
+                }
+                AccountStateResponse::NotExists { .. } => {
+                    tracing::error!("bridge account doesn't exist");
+                }
             }
-            AccountStateResponse::Unchanged { .. } => anyhow::bail!("unexpected response"),
-            AccountStateResponse::NotExists { .. } => anyhow::bail!("bridge account not found"),
+
+            tokio::time::sleep(RETRY_INTERVAL).await;
         }
     }
 }

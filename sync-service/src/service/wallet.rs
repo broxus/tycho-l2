@@ -9,7 +9,7 @@ use everscale_types::models::{
     AccountState, ExtInMsgInfo, MsgInfo, OwnedMessage, OwnedRelaxedMessage, RelaxedIntMsgInfo,
     RelaxedMessage, RelaxedMsgInfo, StateInit, StdAddr, Transaction, ValidatorSet,
 };
-use everscale_types::num::Tokens;
+use everscale_types::num::{Tokens, Uint15};
 use everscale_types::prelude::*;
 use tycho_util::time::now_millis;
 
@@ -121,7 +121,7 @@ impl Wallet {
         bridge_address: &StdAddr,
         value: Tokens,
         query_id: u64,
-    ) -> Result<()> {
+    ) -> Result<Lazy<Transaction>> {
         const METHOD_ID: u32 = 0x11a78ffe;
 
         // Build internal message.
@@ -136,6 +136,7 @@ impl Wallet {
             info: RelaxedMsgInfo::Int(RelaxedIntMsgInfo {
                 dst: bridge_address.clone().into(),
                 ihr_disabled: true,
+                bounce: true,
                 value: value.into(),
                 ..Default::default()
             }),
@@ -144,14 +145,42 @@ impl Wallet {
             layout: None,
         })?;
 
+        let bridge_account_state =
+            get_state_with_retries(self.inner.client.as_ref(), bridge_address, None).await;
+        let bridge_lt = match bridge_account_state {
+            AccountStateResponse::Exists {
+                last_transaction_id,
+                ..
+            } => last_transaction_id.lt,
+            AccountStateResponse::NotExists { .. } => {
+                anyhow::bail!("bridge account doesn't exist");
+            }
+            AccountStateResponse::Unchanged { .. } => {
+                anyhow::bail!("unexpected response");
+            }
+        };
+
         // Send message.
         let tx = self.send_message(0x1, message.cast_into(), 60).await?;
+        let out_msg = tx
+            .load()?
+            .out_msgs
+            .get(Uint15::new(0))?
+            .context("no outbound messages found")?;
         tracing::info!(
             tx_hash = %tx.repr_hash(),
+            out_msg_hash = %out_msg.repr_hash(),
             "sent key block proof",
         );
 
-        Ok(())
+        find_transaction(
+            self.inner.client.as_ref(),
+            bridge_address,
+            out_msg.repr_hash(),
+            bridge_lt,
+            None,
+        )
+        .await
     }
 
     pub async fn send_message(
@@ -244,14 +273,10 @@ struct Inner {
 impl Inner {
     async fn send_external(
         &self,
-        mut known_lt: u64,
+        known_lt: u64,
         msg: Cell,
         expire_at: u32,
     ) -> Result<Lazy<Transaction>> {
-        const POLL_INTERVAL: Duration = Duration::from_secs(1);
-        const RETRY_INTERVAL: Duration = Duration::from_secs(1);
-        const BATCH_LEN: u8 = 10;
-
         let msg_hash = *msg.repr_hash();
 
         self.client
@@ -259,89 +284,18 @@ impl Inner {
             .await
             .context("failed to send message")?;
 
-        let account = &self.address;
-        let client = self.client.as_ref();
-        let get_state = |known_lt: u64| get_state_with_retries(client, account, Some(known_lt));
-
-        let do_find_transaction = async |mut last: LastTransactionId, known_lt: u64| loop {
-            tracing::debug!(%account, ?last, known_lt, "fetching transactions");
-            let res = client
-                .get_transactions(account, last.lt, &last.hash, BATCH_LEN)
-                .await?;
-            anyhow::ensure!(!res.is_empty(), "got empty transactions response");
-
-            for raw_tx in res {
-                let hash = raw_tx.repr_hash();
-                anyhow::ensure!(*hash == last.hash, "last tx hash mismatch");
-                let tx = raw_tx.load().context("got invalid transaction")?;
-                anyhow::ensure!(tx.lt == last.lt, "last tx lt mismatch");
-
-                if let Some(in_msg) = &tx.in_msg {
-                    if *in_msg.repr_hash() == msg_hash {
-                        return Ok(Some(raw_tx));
-                    }
-                }
-
-                last = LastTransactionId {
-                    lt: tx.prev_trans_lt,
-                    hash: tx.prev_trans_hash,
-                };
-                if tx.prev_trans_lt <= known_lt {
-                    break;
-                }
-            }
-
-            if last.lt <= known_lt {
-                return Ok(None);
-            }
-        };
-        let find_transaction = async |last: LastTransactionId, known_lt: u64| loop {
-            match do_find_transaction(last, known_lt).await {
-                Ok(res) => break res,
-                Err(e) => {
-                    tracing::warn!(
-                        client = client.name(),
-                        "failed to process transactions: {e:?}",
-                    );
-                    tokio::time::sleep(RETRY_INTERVAL).await;
-                }
-            }
-        };
-
-        loop {
-            let timings = match get_state(known_lt).await {
-                AccountStateResponse::Exists {
-                    timings,
-                    last_transaction_id,
-                    ..
-                } => {
-                    if last_transaction_id.lt > known_lt {
-                        if let Some(tx) = find_transaction(last_transaction_id, known_lt).await {
-                            return Ok(tx);
-                        }
-
-                        known_lt = last_transaction_id.lt;
-                        tracing::debug!(%account, known_lt, "got new known lt");
-                    }
-
-                    timings
-                }
-                AccountStateResponse::NotExists { timings }
-                | AccountStateResponse::Unchanged { timings } => timings,
-            };
-
-            // Message expired.
-            if timings.gen_utime > expire_at {
-                anyhow::bail!("message expired");
-            }
-
-            tracing::trace!(known_lt, %msg_hash, expire_at, "poll account");
-            tokio::time::sleep(POLL_INTERVAL).await;
-        }
+        find_transaction(
+            self.client.as_ref(),
+            &self.address,
+            &msg_hash,
+            known_lt,
+            Some(expire_at),
+        )
+        .await
     }
 }
 
-async fn get_state_with_retries(
+pub async fn get_state_with_retries(
     client: &dyn NetworkClient,
     address: &StdAddr,
     known_lt: Option<u64>,
@@ -359,6 +313,98 @@ async fn get_state_with_retries(
                 tokio::time::sleep(RETRY_INTERVAL).await;
             }
         }
+    }
+}
+
+pub async fn find_transaction(
+    client: &dyn NetworkClient,
+    address: &StdAddr,
+    msg_hash: &HashBytes,
+    mut known_lt: u64,
+    expire_at: Option<u32>,
+) -> Result<Lazy<Transaction>> {
+    const POLL_INTERVAL: Duration = Duration::from_secs(1);
+    const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+    const BATCH_LEN: u8 = 10;
+
+    let get_state = |known_lt: u64| get_state_with_retries(client, address, Some(known_lt));
+
+    let do_find_transaction = async |mut last: LastTransactionId, known_lt: u64| loop {
+        tracing::trace!(%address, ?last, known_lt, "fetching transactions");
+        let res = client
+            .get_transactions(address, last.lt, &last.hash, BATCH_LEN)
+            .await?;
+        anyhow::ensure!(!res.is_empty(), "got empty transactions response");
+
+        for raw_tx in res {
+            let hash = raw_tx.repr_hash();
+            anyhow::ensure!(*hash == last.hash, "last tx hash mismatch");
+            let tx = raw_tx.load().context("got invalid transaction")?;
+            anyhow::ensure!(tx.lt == last.lt, "last tx lt mismatch");
+
+            if let Some(in_msg) = &tx.in_msg {
+                if in_msg.repr_hash() == msg_hash {
+                    return Ok(Some(raw_tx));
+                }
+            }
+
+            last = LastTransactionId {
+                lt: tx.prev_trans_lt,
+                hash: tx.prev_trans_hash,
+            };
+            if tx.prev_trans_lt <= known_lt {
+                break;
+            }
+        }
+
+        if last.lt <= known_lt {
+            return Ok(None);
+        }
+    };
+    let find_transaction = async |last: LastTransactionId, known_lt: u64| loop {
+        match do_find_transaction(last, known_lt).await {
+            Ok(res) => break res,
+            Err(e) => {
+                tracing::warn!(
+                    client = client.name(),
+                    "failed to process transactions: {e:?}",
+                );
+                tokio::time::sleep(RETRY_INTERVAL).await;
+            }
+        }
+    };
+
+    loop {
+        let timings = match get_state(known_lt).await {
+            AccountStateResponse::Exists {
+                timings,
+                last_transaction_id,
+                ..
+            } => {
+                if last_transaction_id.lt > known_lt {
+                    if let Some(tx) = find_transaction(last_transaction_id, known_lt).await {
+                        return Ok(tx);
+                    }
+
+                    known_lt = last_transaction_id.lt;
+                    tracing::trace!(%address, known_lt, "got new known lt");
+                }
+
+                timings
+            }
+            AccountStateResponse::NotExists { timings }
+            | AccountStateResponse::Unchanged { timings } => timings,
+        };
+
+        // Message expired.
+        if let Some(expire_at) = expire_at {
+            if timings.gen_utime > expire_at {
+                anyhow::bail!("message expired");
+            }
+        }
+
+        tracing::trace!(known_lt, %msg_hash, ?expire_at, "poll account");
+        tokio::time::sleep(POLL_INTERVAL).await;
     }
 }
 
