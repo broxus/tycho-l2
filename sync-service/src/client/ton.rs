@@ -216,7 +216,7 @@ fn parse_proofs(proofs: Vec<u8>) -> Result<ParsedProofs> {
         min_roots: Some(2),
     })?;
 
-    let block_proof_id = *header.roots().get(0).context("block proof not found")?;
+    let block_proof_id = *header.roots().first().context("block proof not found")?;
     let state_proof_id = *header.roots().get(1).context("state proof not found")?;
     let cells = header.finalize(Cell::empty_context())?;
 

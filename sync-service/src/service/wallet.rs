@@ -60,7 +60,7 @@ impl Wallet {
             .await
             .context("failed to get signature id")?;
 
-        let ttl = timeout.clamp(1, 60) as u32;
+        let ttl = timeout.clamp(1, 60);
 
         let AbiValue::Tuple(inputs) = methods::SendTransactionInputs {
             flags,

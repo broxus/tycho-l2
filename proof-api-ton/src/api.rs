@@ -34,7 +34,9 @@ use crate::client::TonClient;
 pub struct ApiConfig {
     pub listen_addr: SocketAddr,
     pub public_url: Option<String>,
+    #[serde(default = "default_rate_limit")]
     pub rate_limit: NonZeroU32,
+    #[serde(default)]
     pub whitelist: Vec<IpAddr>,
 }
 
@@ -44,10 +46,14 @@ impl Default for ApiConfig {
         Self {
             listen_addr: (Ipv4Addr::LOCALHOST, 8080).into(),
             public_url: None,
-            rate_limit: NonZeroU32::new(400).unwrap(),
+            rate_limit: default_rate_limit(),
             whitelist: Vec::new(),
         }
     }
+}
+
+const fn default_rate_limit() -> NonZeroU32 {
+    NonZeroU32::new(400).unwrap()
 }
 
 pub struct AppState {
