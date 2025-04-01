@@ -62,7 +62,7 @@ tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "97ac77d
 tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "97ac77d8bafd1d2724b5296f784db5b23941659d" }
 tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "97ac77d8bafd1d2724b5296f784db5b23941659d" }
 
-nekoton-abi = { git = "ssh://git@github.com/broxus/tycho-nekoton.git" }
+nekoton-abi = { git = "https://github.com/broxus/tycho-nekoton.git", rev = "f783c742ca1b0dcd0cdf7eb1cc67a1c498d10295" }
 
 # local deps
 proof-api-util = { path = "./util" }
