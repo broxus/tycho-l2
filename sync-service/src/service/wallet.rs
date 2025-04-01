@@ -6,14 +6,16 @@ use everscale_crypto::ed25519;
 use everscale_types::abi::*;
 use everscale_types::cell::Lazy;
 use everscale_types::models::{
-    AccountState, ExtInMsgInfo, MsgInfo, OwnedMessage, OwnedRelaxedMessage, StateInit, StdAddr,
-    Transaction,
+    AccountState, ExtInMsgInfo, MsgInfo, OwnedMessage, OwnedRelaxedMessage, RelaxedIntMsgInfo,
+    RelaxedMessage, RelaxedMsgInfo, StateInit, StdAddr, Transaction, ValidatorSet,
 };
+use everscale_types::num::Tokens;
 use everscale_types::prelude::*;
 use tycho_util::time::now_millis;
 
 use crate::client::NetworkClient;
-use crate::util::account::{AccountStateResponse, LastTransactionId};
+use crate::service::lib_store;
+use crate::util::account::{compute_address, AccountStateResponse, LastTransactionId};
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -27,11 +29,7 @@ impl Wallet {
         keypair: Arc<ed25519::KeyPair>,
         client: Arc<dyn NetworkClient>,
     ) -> Self {
-        let state_init = make_state_init(&keypair.public_key);
-        let address = StdAddr::new(
-            workchain,
-            *CellBuilder::build_from(state_init).unwrap().repr_hash(),
-        );
+        let address = compute_address(workchain, &make_state_init(&keypair.public_key));
 
         Self {
             inner: Arc::new(Inner {
@@ -44,6 +42,116 @@ impl Wallet {
 
     pub fn address(&self) -> &StdAddr {
         &self.inner.address
+    }
+
+    pub async fn deploy_vset_lib(
+        &self,
+        vset: &ValidatorSet,
+        value: Tokens,
+        id: u128,
+    ) -> Result<StdAddr> {
+        const POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+        // Compute vset data and the lib_store address.
+        let vset_data = lib_store::make_epoch_data(vset).context("failed to build epoch data")?;
+        let state_init = lib_store::make_state_init(&self.inner.address, id);
+        let address = compute_address(-1, &state_init);
+
+        // Check that account doesn't exist.
+        let client = self.inner.client.as_ref();
+        let account = client
+            .get_account_state(&address, None)
+            .await
+            .context("failed to get lib_store account")?;
+
+        if let AccountStateResponse::Exists { account, .. } = account {
+            match account.state {
+                AccountState::Active { .. } | AccountState::Frozen { .. } => {
+                    anyhow::bail!("lib_store account already exists: address={address}, id={id}");
+                }
+                AccountState::Uninit => {
+                    tracing::warn!(
+                        %address,
+                        "lib_store account already exists, but uninit",
+                    );
+                }
+            }
+        }
+
+        // Build internal message.
+        let mut body = CellBuilder::new();
+        body.store_reference(vset_data)?;
+        let body = body.as_full_slice();
+
+        let message = Lazy::new(&RelaxedMessage {
+            info: RelaxedMsgInfo::Int(RelaxedIntMsgInfo {
+                dst: address.clone().into(),
+                ihr_disabled: true,
+                value: value.into(),
+                ..Default::default()
+            }),
+            init: Some(state_init),
+            body,
+            layout: None,
+        })?;
+
+        // Send message.
+        let tx = self.send_message(0x1, message.cast_into(), 60).await?;
+        tracing::info!(
+            tx_hash = %tx.repr_hash(),
+            %address,
+            "sent lib_store deploy",
+        );
+
+        // Wait until lib_store contract is deployed.
+        loop {
+            let state = get_state_with_retries(client, &address, None).await;
+            if matches!(state, AccountStateResponse::Exists { .. }) {
+                return Ok(address);
+            }
+            tokio::time::sleep(POLL_INTERVAL).await;
+        }
+    }
+
+    pub async fn send_key_block(
+        &self,
+        key_block_proof: Cell,
+        file_hash: &HashBytes,
+        signatures: Cell,
+        bridge_address: &StdAddr,
+        value: Tokens,
+        query_id: u64,
+    ) -> Result<()> {
+        const METHOD_ID: u32 = 0x11a78ffe;
+
+        // Build internal message.
+        let mut body = CellBuilder::new();
+        body.store_u32(METHOD_ID)?;
+        body.store_reference(CellBuilder::build_from((file_hash, key_block_proof))?)?;
+        body.store_reference(signatures)?;
+        body.store_u64(query_id)?;
+        let body = body.as_full_slice();
+
+        let message = Lazy::new(&RelaxedMessage {
+            info: RelaxedMsgInfo::Int(RelaxedIntMsgInfo {
+                dst: bridge_address.clone().into(),
+                ihr_disabled: true,
+                value: value.into(),
+                ..Default::default()
+            }),
+            init: None,
+            body,
+            layout: None,
+        })?;
+
+        // Send message.
+        let tx = self.send_message(0x1, message.cast_into(), 60).await?;
+        tracing::info!(
+            tx_hash = %tx.repr_hash(),
+            "sent key block proof",
+        );
+
+        Ok(())
     }
 
     pub async fn send_message(
@@ -153,18 +261,7 @@ impl Inner {
 
         let account = &self.address;
         let client = self.client.as_ref();
-        let get_state = async |known_lt: u64| loop {
-            match client.get_account_state(account, Some(known_lt)).await {
-                Ok(res) => break res,
-                Err(e) => {
-                    tracing::warn!(
-                        client = client.name(),
-                        "failed to get contract state: {e:?}"
-                    );
-                    tokio::time::sleep(RETRY_INTERVAL).await;
-                }
-            }
-        };
+        let get_state = |known_lt: u64| get_state_with_retries(client, account, Some(known_lt));
 
         let do_find_transaction = async |mut last: LastTransactionId, known_lt: u64| loop {
             tracing::debug!(%account, ?last, known_lt, "fetching transactions");
@@ -240,6 +337,27 @@ impl Inner {
 
             tracing::trace!(known_lt, %msg_hash, expire_at, "poll account");
             tokio::time::sleep(POLL_INTERVAL).await;
+        }
+    }
+}
+
+async fn get_state_with_retries(
+    client: &dyn NetworkClient,
+    address: &StdAddr,
+    known_lt: Option<u64>,
+) -> AccountStateResponse {
+    const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+    loop {
+        match client.get_account_state(address, known_lt).await {
+            Ok(res) => break res,
+            Err(e) => {
+                tracing::warn!(
+                    client = client.name(),
+                    "failed to get contract state: {e:?}"
+                );
+                tokio::time::sleep(RETRY_INTERVAL).await;
+            }
         }
     }
 }
@@ -322,8 +440,7 @@ mod tests {
         let pubkey = ed25519::PublicKey::from_bytes(pubkey.0).unwrap();
 
         let state_init = make_state_init(&pubkey);
-
-        let addr = StdAddr::new(0, *CellBuilder::build_from(state_init).unwrap().repr_hash());
+        let addr = compute_address(0, &state_init);
         assert_eq!(
             addr.to_string(),
             "0:2adb83beb873806e8971631173991e6250bd97310e8d09b5e2de44320d0a8068"

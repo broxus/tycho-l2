@@ -2997,6 +2997,7 @@ dependencies = [
  "num-traits",
  "parking_lot",
  "proof-api-util",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",

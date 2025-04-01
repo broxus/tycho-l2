@@ -1,7 +1,14 @@
-use everscale_types::models::Account;
+use everscale_types::models::{Account, StateInit, StdAddr};
 use everscale_types::prelude::*;
 use serde::{Deserialize, Serialize};
 use tycho_util::serde_helpers;
+
+pub fn compute_address(workchain: i8, state_init: &StateInit) -> StdAddr {
+    StdAddr::new(
+        workchain,
+        *CellBuilder::build_from(state_init).unwrap().repr_hash(),
+    )
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", tag = "type")]

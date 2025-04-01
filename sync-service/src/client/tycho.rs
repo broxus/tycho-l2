@@ -7,8 +7,8 @@ use everscale_types::models::{
 };
 use everscale_types::prelude::*;
 use proof_api_util::block::{
-    BaseBlockProof, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
-    BlockchainModels, TychoModels,
+    make_key_block_proof, BaseBlockProof, BlockchainBlock, BlockchainBlockExtra,
+    BlockchainBlockMcExtra, BlockchainModels, TychoModels,
 };
 
 use crate::client::{KeyBlockData, NetworkClient};
@@ -127,5 +127,16 @@ impl NetworkClient for TychoClient {
 
     async fn send_message(&self, message: Cell) -> Result<()> {
         self.rpc.send_message(message.as_ref()).await
+    }
+
+    fn make_key_block_proof_to_sync(&self, data: &KeyBlockData) -> Result<Cell> {
+        make_key_block_proof::<TychoModels>(
+            data.root.clone(),
+            data.prev_vset
+                .as_ref()
+                .map(|prev_vset| data.current_vset.utime_since != prev_vset.utime_until)
+                .unwrap_or_default(),
+        )
+        .context("failed to build key block proof")
     }
 }

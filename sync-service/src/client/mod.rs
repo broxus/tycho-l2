@@ -44,6 +44,8 @@ pub trait NetworkClient: Send + Sync {
     ) -> Result<Vec<Lazy<Transaction>>>;
 
     async fn send_message(&self, message: Cell) -> Result<()>;
+
+    fn make_key_block_proof_to_sync(&self, data: &KeyBlockData) -> Result<Cell>;
 }
 
 #[derive(Debug)]

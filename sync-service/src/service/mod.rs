@@ -4,13 +4,14 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use everscale_crypto::ed25519;
-use everscale_types::cell::{HashBytes, Lazy};
-use everscale_types::models::{
-    Account, AccountState, BlockchainConfig, OwnedRelaxedMessage, RelaxedIntMsgInfo,
-    RelaxedMsgInfo, StdAddr,
-};
+use everscale_types::cell::{CellBuilder, HashBytes};
+use everscale_types::merkle::MerkleProof;
+use everscale_types::models::{Account, AccountState, BlockchainConfig, StdAddr};
+use everscale_types::num::Tokens;
 use nekoton_abi::execution_context::ExecutionContextBuilder;
 use num_traits::ToPrimitive;
+use proof_api_util::block::prepare_signatures;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tycho_util::serde_helpers;
 
@@ -18,17 +19,26 @@ use self::wallet::Wallet;
 use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;
 
+mod lib_store;
 mod wallet;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UploaderConfig {
     #[serde(with = "proof_api_util::serde_helpers::ton_address")]
     pub bridge_address: StdAddr,
+
     #[serde(with = "proof_api_util::serde_helpers::ton_address")]
     pub wallet_address: StdAddr,
     pub wallet_secret: HashBytes,
+
+    #[serde(with = "serde_helpers::string")]
+    pub lib_store_value: u128,
+    #[serde(with = "serde_helpers::string")]
+    pub store_vset_value: u128,
+
     #[serde(default = "default_poll_interval")]
     pub poll_interval: Duration,
+
     #[serde(default = "default_retry_interval", with = "serde_helpers::humantime")]
     pub retry_interval: Duration,
 }
@@ -118,26 +128,55 @@ impl Uploader {
             .key_blocks_cache
             .split_off(&key_block.prev_key_block_seqno);
         self.key_blocks_cache = new_cache;
+        tracing::debug!(key_blocks_cache_len = self.key_blocks_cache.len());
         Ok(())
     }
 
-    async fn send_key_block(&self, _key_block: Arc<KeyBlockData>) -> Result<()> {
-        let message = Lazy::new(&OwnedRelaxedMessage {
-            info: RelaxedMsgInfo::Int(RelaxedIntMsgInfo {
-                dst: self.wallet.address().clone().into(),
-                bounce: true,
-                ..Default::default()
-            }),
-            init: None,
-            body: Default::default(),
-            layout: None,
+    async fn send_key_block(&self, key_block: Arc<KeyBlockData>) -> Result<()> {
+        let key_block_proof = self.src.make_key_block_proof_to_sync(&key_block)?;
+        let key_block_proof = CellBuilder::build_from(MerkleProof {
+            hash: *key_block_proof.hash(0),
+            depth: key_block_proof.depth(0),
+            cell: key_block_proof,
         })?;
 
-        let tx = self.wallet.send_message(0x3, message, 60).await?;
+        let Some(prev_vset) = key_block.prev_vset.as_ref() else {
+            anyhow::bail!("no prev_vset found");
+        };
+        let signatures =
+            prepare_signatures(key_block.signatures.iter().cloned().map(Ok), &prev_vset)?;
+
+        // Deploy library.
+        let id = rand::thread_rng().gen();
+        let lib_store = self
+            .wallet
+            .deploy_vset_lib(
+                &key_block.current_vset,
+                Tokens::new(self.config.lib_store_value),
+                id,
+            )
+            .await
+            .context("failed to deploy a library with validator set")?;
         tracing::info!(
-            tx_hash = %tx.repr_hash(),
-            "sent key block",
+            seqno = %key_block.block_id.seqno,
+            address = %lib_store,
+            "deployed a lib_store for key block",
         );
+
+        // Send key block.
+        self.wallet
+            .send_key_block(
+                key_block_proof,
+                &key_block.block_id.file_hash,
+                signatures,
+                &self.config.bridge_address,
+                Tokens::new(self.config.store_vset_value),
+                0,
+            )
+            .await
+            .context("failed to store key block proof into bridge contract")?;
+
+        // Done
         Ok(())
     }
 

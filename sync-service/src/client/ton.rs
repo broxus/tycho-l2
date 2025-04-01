@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use everscale_types::boc::Boc;
 use everscale_types::cell::Lazy;
 use everscale_types::error::Error;
 use everscale_types::merkle::MerkleProof;
@@ -10,7 +9,8 @@ use everscale_types::models::{
 };
 use everscale_types::prelude::*;
 use proof_api_util::block::{
-    BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels, TonModels,
+    make_key_block_proof, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
+    BlockchainModels, TonModels,
 };
 use ton_lite_client::{proto, LiteClient};
 
@@ -205,6 +205,17 @@ impl NetworkClient for TonClient {
         let status = self.rpc.send_message(Boc::encode(message)).await?;
         anyhow::ensure!(status == 1, "message not sent");
         Ok(())
+    }
+
+    fn make_key_block_proof_to_sync(&self, data: &KeyBlockData) -> Result<Cell> {
+        make_key_block_proof::<TonModels>(
+            data.root.clone(),
+            data.prev_vset
+                .as_ref()
+                .map(|prev_vset| data.current_vset.utime_since != prev_vset.utime_until)
+                .unwrap_or_default(),
+        )
+        .context("failed to build key block proof")
     }
 }
 
