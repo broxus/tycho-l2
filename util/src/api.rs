@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::serve::IncomingStream;
 use axum::Extension;
 use futures_util::future::BoxFuture;
-use http::{HeaderMap, HeaderName, HeaderValue};
+use http::{HeaderName, HeaderValue};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tower_service::Service;
@@ -66,7 +66,7 @@ fn get_api_json(Extension(api): Extension<Arc<OpenApi>>) -> futures_util::future
         .as_bytes();
 
     let data = axum::body::Bytes::from_static(json);
-    futures_util::future::ready((JSON_HEADERS, data).into_response())
+    futures_util::future::ready((JSON_HEADERS_DONT_CACHE, data).into_response())
 }
 
 pub struct OpenApiConfig {
@@ -138,7 +138,7 @@ fn get_version_impl(
     });
 
     let data = axum::body::Bytes::from_static(res);
-    futures_util::future::ready((JSON_HEADERS, data).into_response())
+    futures_util::future::ready((JSON_HEADERS_DONT_CACHE, data).into_response())
 }
 
 fn get_version_docs(op: TransformOperation<'_>) -> TransformOperation<'_> {
@@ -146,43 +146,25 @@ fn get_version_docs(op: TransformOperation<'_>) -> TransformOperation<'_> {
         .response::<200, axum::Json<ApiInfoResponse>>()
 }
 
-pub const JSON_HEADERS: [(HeaderName, HeaderValue); 1] = [(
-    http::header::CONTENT_TYPE,
-    HeaderValue::from_static("application/json"),
-)];
-
-pub fn dont_cache<T>(headers: &[(HeaderName, HeaderValue)], response: T) -> (HeaderMap, T)
-where
-    T: IntoResponse,
-{
-    let mut with_cache_control = HeaderMap::new();
-
-    for (name, value) in headers {
-        with_cache_control.insert(name, value.clone());
-    }
-
-    with_cache_control.insert(
+pub const JSON_HEADERS_DONT_CACHE: [(HeaderName, HeaderValue); 2] = [
+    make_json_content_type(),
+    (
         http::header::CACHE_CONTROL,
         HeaderValue::from_static("no-store"),
-    );
+    ),
+];
 
-    (with_cache_control, response)
-}
-
-pub fn cache_for<T>(headers: &[(HeaderName, HeaderValue)], response: T, time: u32) -> (HeaderMap, T)
-where
-    T: IntoResponse,
-{
-    let mut with_cache_control = HeaderMap::new();
-
-    for (name, value) in headers {
-        with_cache_control.insert(name, value.clone());
-    }
-
-    with_cache_control.insert(
+pub const JSON_HEADERS_CACHE_1W: [(HeaderName, HeaderValue); 2] = [
+    make_json_content_type(),
+    (
         http::header::CACHE_CONTROL,
-        HeaderValue::from_str(&format!("public,max-age={time}")).expect("valid cache control"),
-    );
+        HeaderValue::from_static("public,max-age=604800"),
+    ),
+];
 
-    (with_cache_control, response)
+const fn make_json_content_type() -> (HeaderName, HeaderValue) {
+    (
+        http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    )
 }

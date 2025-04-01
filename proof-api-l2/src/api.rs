@@ -11,7 +11,8 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Router};
 use everscale_types::boc::Boc;
 use proof_api_util::api::{
-    cache_for, dont_cache, get_version, prepare_open_api, ApiRouterExt, OpenApiConfig, JSON_HEADERS,
+    get_version, prepare_open_api, ApiRouterExt, OpenApiConfig, JSON_HEADERS_CACHE_1W,
+    JSON_HEADERS_DONT_CACHE,
 };
 use proof_api_util::serde_helpers::TonAddr;
 use schemars::JsonSchema;
@@ -90,7 +91,7 @@ async fn get_proof_chain_v1(
                 })
                 .unwrap();
 
-                cache_for(&JSON_HEADERS, axum::body::Bytes::from(data), 604800).into_response()
+                (JSON_HEADERS_CACHE_1W, axum::body::Bytes::from(data)).into_response()
             })
             .await
         }
@@ -128,7 +129,8 @@ fn res_error(error: ErrorResponse) -> Response {
     let data = serde_json::to_vec(&error).unwrap();
     (
         status,
-        dont_cache(&JSON_HEADERS, axum::body::Bytes::from(data)),
+        JSON_HEADERS_DONT_CACHE,
+        axum::body::Bytes::from(data),
     )
         .into_response()
 }

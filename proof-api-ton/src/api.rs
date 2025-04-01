@@ -6,8 +6,7 @@ use std::time::Duration;
 use aide::axum::routing::get_with;
 use aide::axum::ApiRouter;
 use aide::transform::TransformOperation;
-use axum::extract::ConnectInfo;
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Router};
@@ -17,7 +16,8 @@ use governor::clock::DefaultClock;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
 use proof_api_util::api::{
-    cache_for, dont_cache, get_version, prepare_open_api, ApiRouterExt, OpenApiConfig, JSON_HEADERS,
+    get_version, prepare_open_api, ApiRouterExt, OpenApiConfig, JSON_HEADERS_CACHE_1W,
+    JSON_HEADERS_DONT_CACHE,
 };
 use proof_api_util::serde_helpers::TonAddr;
 use schemars::JsonSchema;
@@ -26,7 +26,7 @@ use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 use tycho_util::sync::rayon_run;
-use tycho_util::FastHashSet;
+use tycho_util::{FastHashSet, FastHasherState};
 
 use crate::client::TonClient;
 
@@ -44,7 +44,7 @@ impl Default for ApiConfig {
         Self {
             listen_addr: (Ipv4Addr::LOCALHOST, 8080).into(),
             public_url: None,
-            rate_limit: unsafe { NonZeroU32::new_unchecked(400) },
+            rate_limit: NonZeroU32::new(400).unwrap(),
             whitelist: Vec::new(),
         }
     }
@@ -53,7 +53,7 @@ impl Default for ApiConfig {
 pub struct AppState {
     client: TonClient,
     whitelist: FastHashSet<IpAddr>,
-    governor: RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>,
+    governor: RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr, FastHasherState>, DefaultClock>,
 }
 
 pub fn build_api(config: &ApiConfig, client: TonClient) -> Router {
@@ -80,8 +80,7 @@ pub fn build_api(config: &ApiConfig, client: TonClient) -> Router {
         );
 
     let quota = Quota::per_second(config.rate_limit).allow_burst(config.rate_limit);
-    let governor: RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock> =
-        governor::RateLimiter::dashmap(quota);
+    let governor = governor::RateLimiter::dashmap_with_hasher(quota, Default::default());
 
     let state = Arc::new(AppState {
         client,
@@ -143,7 +142,7 @@ async fn get_proof_chain_v1(
                 })
                 .unwrap();
 
-                cache_for(&JSON_HEADERS, axum::body::Bytes::from(data), 604800).into_response()
+                (JSON_HEADERS_CACHE_1W, axum::body::Bytes::from(data)).into_response()
             })
             .await
         }
@@ -180,7 +179,8 @@ fn res_error(error: ErrorResponse) -> Response {
     let data = serde_json::to_vec(&error).unwrap();
     (
         status,
-        dont_cache(&JSON_HEADERS, axum::body::Bytes::from(data)),
+        JSON_HEADERS_DONT_CACHE,
+        axum::body::Bytes::from(data),
     )
         .into_response()
 }
