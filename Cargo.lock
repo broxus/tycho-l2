@@ -2986,28 +2986,23 @@ name = "sync-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "async-trait",
  "clap",
  "ed25519-dalek",
- "everscale-crypto",
  "everscale-types",
  "futures-util",
  "nekoton-abi",
  "num-traits",
- "parking_lot",
  "proof-api-util",
  "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
  "tikv-jemallocator",
  "tokio",
  "ton-lite-client",
  "tracing",
  "tracing-subscriber",
- "tycho-block-util",
  "tycho-util",
 ]
 

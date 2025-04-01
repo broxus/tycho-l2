@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let global_config: TonGlobalConfig =
-        serde_json::from_str(include_str!("ton-global-config.json"))?;
+        serde_json::from_str(include_str!("mainnet-global-config.json"))?;
 
     let config = LiteClientConfig::default();
     let client = LiteClient::new(config, global_config.liteservers);

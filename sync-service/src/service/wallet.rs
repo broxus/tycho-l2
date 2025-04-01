@@ -1,12 +1,10 @@
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 
 use anyhow::{Context, Result};
-use everscale_crypto::ed25519;
 use everscale_types::abi::*;
 use everscale_types::cell::Lazy;
 use everscale_types::models::{
-    AccountState, ExtInMsgInfo, MsgInfo, OwnedMessage, OwnedRelaxedMessage, RelaxedIntMsgInfo,
+    AccountState, ExtInMsgInfo, Message, MsgInfo, OwnedRelaxedMessage, RelaxedIntMsgInfo,
     RelaxedMessage, RelaxedMsgInfo, StateInit, StdAddr, Transaction, ValidatorSet,
 };
 use everscale_types::num::{Tokens, Uint15};
@@ -15,7 +13,7 @@ use tycho_util::time::now_millis;
 
 use crate::client::NetworkClient;
 use crate::service::lib_store;
-use crate::util::account::{compute_address, AccountStateResponse, LastTransactionId};
+use crate::util::account::{compute_address, AccountStateResponse};
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -26,15 +24,15 @@ pub struct Wallet {
 impl Wallet {
     pub fn new(
         workchain: i8,
-        keypair: Arc<ed25519::KeyPair>,
+        key: Arc<ed25519_dalek::SigningKey>,
         client: Arc<dyn NetworkClient>,
     ) -> Self {
-        let address = compute_address(workchain, &make_state_init(&keypair.public_key));
+        let address = compute_address(workchain, &make_state_init((*key).as_ref()));
 
         Self {
             inner: Arc::new(Inner {
                 address,
-                keypair,
+                key,
                 client,
             }),
         }
@@ -50,8 +48,6 @@ impl Wallet {
         value: Tokens,
         id: u128,
     ) -> Result<StdAddr> {
-        const POLL_INTERVAL: Duration = Duration::from_secs(1);
-
         // Compute vset data and the lib_store address.
         let vset_data = lib_store::make_epoch_data(vset).context("failed to build epoch data")?;
         let state_init = lib_store::make_state_init(&self.inner.address, id);
@@ -104,13 +100,8 @@ impl Wallet {
         );
 
         // Wait until lib_store contract is deployed.
-        loop {
-            let state = get_state_with_retries(client, &address, None).await;
-            if matches!(state, AccountStateResponse::Exists { .. }) {
-                return Ok(address);
-            }
-            tokio::time::sleep(POLL_INTERVAL).await;
-        }
+        client.wait_for_deploy(&address).await;
+        Ok(address)
     }
 
     pub async fn send_key_block(
@@ -145,8 +136,10 @@ impl Wallet {
             layout: None,
         })?;
 
-        let bridge_account_state =
-            get_state_with_retries(self.inner.client.as_ref(), bridge_address, None).await;
+        let client = self.inner.client.as_ref();
+        let bridge_account_state = client
+            .get_account_state_with_retries(bridge_address, None)
+            .await;
         let bridge_lt = match bridge_account_state {
             AccountStateResponse::Exists {
                 last_transaction_id,
@@ -173,14 +166,10 @@ impl Wallet {
             "sent key block proof",
         );
 
-        find_transaction(
-            self.inner.client.as_ref(),
-            bridge_address,
-            out_msg.repr_hash(),
-            bridge_lt,
-            None,
-        )
-        .await
+        client
+            .find_transaction(bridge_address, out_msg.repr_hash(), bridge_lt, None)
+            .await
+            .context("no tx found")
     }
 
     pub async fn send_message(
@@ -219,196 +208,48 @@ impl Wallet {
                 match &account.state {
                     AccountState::Active(..) => None,
                     AccountState::Frozen(..) => anyhow::bail!("wallet is frozen"),
-                    AccountState::Uninit => Some(make_state_init(&this.keypair.public_key)),
+                    AccountState::Uninit => Some(make_state_init((*this.key).as_ref())),
                 }
             }
             AccountStateResponse::Unchanged { .. } => anyhow::bail!("unexpected response"),
             AccountStateResponse::NotExists { .. } => anyhow::bail!("wallet does not exist"),
         };
 
-        let pubkey =
-            ed25519_dalek::VerifyingKey::from_bytes(self.inner.keypair.public_key.as_bytes())
-                .unwrap();
-
         let now_ms = now_millis();
         let expire_at = (now_ms / 1000) as u32 + ttl;
-        let unsigned_body = methods::send_transaction()
+        let body = methods::send_transaction()
             .encode_external(&inputs)
-            .with_address(&self.inner.address)
+            .with_address(&this.address)
             .with_time(now_ms)
             .with_expire_at(expire_at)
-            .with_pubkey(&pubkey)
-            .build_input()?;
+            .with_pubkey((*this.key).as_ref())
+            .build_input()?
+            .sign(&this.key, signature_id)?;
 
-        let body = {
-            let to_sign = extend_signature_with_id(unsigned_body.hash.as_slice(), signature_id);
-            let signature = this.keypair.sign_raw(&to_sign);
-            unsigned_body.fill_signature(Some(&signature))?
-        };
-
-        let body_range = CellSliceRange::full(body.as_ref());
-
-        let message = OwnedMessage {
+        let message_cell = CellBuilder::build_from(Message {
             info: MsgInfo::ExtIn(ExtInMsgInfo {
                 src: None,
                 dst: this.address.clone().into(),
                 ..Default::default()
             }),
             init,
-            body: (body, body_range),
+            body: body.as_slice()?,
             layout: None,
-        };
-        let message_cell = CellBuilder::build_from(message)?;
+        })?;
 
-        this.send_external(known_lt, message_cell, expire_at).await
+        this.client
+            .send_message_reliable(&this.address, message_cell, known_lt, expire_at)
+            .await
     }
 }
 
 struct Inner {
     address: StdAddr,
-    keypair: Arc<ed25519::KeyPair>,
+    key: Arc<ed25519_dalek::SigningKey>,
     client: Arc<dyn NetworkClient>,
 }
 
-impl Inner {
-    async fn send_external(
-        &self,
-        known_lt: u64,
-        msg: Cell,
-        expire_at: u32,
-    ) -> Result<Lazy<Transaction>> {
-        let msg_hash = *msg.repr_hash();
-
-        self.client
-            .send_message(msg)
-            .await
-            .context("failed to send message")?;
-
-        find_transaction(
-            self.client.as_ref(),
-            &self.address,
-            &msg_hash,
-            known_lt,
-            Some(expire_at),
-        )
-        .await
-    }
-}
-
-pub async fn get_state_with_retries(
-    client: &dyn NetworkClient,
-    address: &StdAddr,
-    known_lt: Option<u64>,
-) -> AccountStateResponse {
-    const RETRY_INTERVAL: Duration = Duration::from_secs(1);
-
-    loop {
-        match client.get_account_state(address, known_lt).await {
-            Ok(res) => break res,
-            Err(e) => {
-                tracing::warn!(
-                    client = client.name(),
-                    "failed to get contract state: {e:?}"
-                );
-                tokio::time::sleep(RETRY_INTERVAL).await;
-            }
-        }
-    }
-}
-
-pub async fn find_transaction(
-    client: &dyn NetworkClient,
-    address: &StdAddr,
-    msg_hash: &HashBytes,
-    mut known_lt: u64,
-    expire_at: Option<u32>,
-) -> Result<Lazy<Transaction>> {
-    const POLL_INTERVAL: Duration = Duration::from_secs(1);
-    const RETRY_INTERVAL: Duration = Duration::from_secs(1);
-    const BATCH_LEN: u8 = 10;
-
-    let get_state = |known_lt: u64| get_state_with_retries(client, address, Some(known_lt));
-
-    let do_find_transaction = async |mut last: LastTransactionId, known_lt: u64| loop {
-        tracing::trace!(%address, ?last, known_lt, "fetching transactions");
-        let res = client
-            .get_transactions(address, last.lt, &last.hash, BATCH_LEN)
-            .await?;
-        anyhow::ensure!(!res.is_empty(), "got empty transactions response");
-
-        for raw_tx in res {
-            let hash = raw_tx.repr_hash();
-            anyhow::ensure!(*hash == last.hash, "last tx hash mismatch");
-            let tx = raw_tx.load().context("got invalid transaction")?;
-            anyhow::ensure!(tx.lt == last.lt, "last tx lt mismatch");
-
-            if let Some(in_msg) = &tx.in_msg {
-                if in_msg.repr_hash() == msg_hash {
-                    return Ok(Some(raw_tx));
-                }
-            }
-
-            last = LastTransactionId {
-                lt: tx.prev_trans_lt,
-                hash: tx.prev_trans_hash,
-            };
-            if tx.prev_trans_lt <= known_lt {
-                break;
-            }
-        }
-
-        if last.lt <= known_lt {
-            return Ok(None);
-        }
-    };
-    let find_transaction = async |last: LastTransactionId, known_lt: u64| loop {
-        match do_find_transaction(last, known_lt).await {
-            Ok(res) => break res,
-            Err(e) => {
-                tracing::warn!(
-                    client = client.name(),
-                    "failed to process transactions: {e:?}",
-                );
-                tokio::time::sleep(RETRY_INTERVAL).await;
-            }
-        }
-    };
-
-    loop {
-        let timings = match get_state(known_lt).await {
-            AccountStateResponse::Exists {
-                timings,
-                last_transaction_id,
-                ..
-            } => {
-                if last_transaction_id.lt > known_lt {
-                    if let Some(tx) = find_transaction(last_transaction_id, known_lt).await {
-                        return Ok(tx);
-                    }
-
-                    known_lt = last_transaction_id.lt;
-                    tracing::trace!(%address, known_lt, "got new known lt");
-                }
-
-                timings
-            }
-            AccountStateResponse::NotExists { timings }
-            | AccountStateResponse::Unchanged { timings } => timings,
-        };
-
-        // Message expired.
-        if let Some(expire_at) = expire_at {
-            if timings.gen_utime > expire_at {
-                anyhow::bail!("message expired");
-            }
-        }
-
-        tracing::trace!(known_lt, %msg_hash, ?expire_at, "poll account");
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
-fn make_state_init(pubkey: &ed25519::PublicKey) -> StateInit {
+fn make_state_init(pubkey: &ed25519_dalek::VerifyingKey) -> StateInit {
     StateInit {
         split_depth: None,
         special: None,
@@ -483,7 +324,7 @@ mod tests {
     fn wallet_address() -> Result<()> {
         let pubkey = "b5621766abc6482b9ba0c986215c218d2a9c462c597dc89e5ecae889a1063adb"
             .parse::<HashBytes>()?;
-        let pubkey = ed25519::PublicKey::from_bytes(pubkey.0).unwrap();
+        let pubkey = ed25519_dalek::VerifyingKey::from_bytes(&pubkey.0).unwrap();
 
         let state_init = make_state_init(&pubkey);
         let addr = compute_address(0, &state_init);

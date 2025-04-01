@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use everscale_crypto::ed25519;
 use everscale_types::cell::{CellBuilder, HashBytes};
 use everscale_types::merkle::MerkleProof;
 use everscale_types::models::{
@@ -76,9 +75,10 @@ impl Uploader {
             .await
             .with_context(|| format!("failed to get blockchain config for {}", dst.name()))?;
 
-        let secret = ed25519::SecretKey::from_bytes(config.wallet_secret.0);
-        let keypair = Arc::new(ed25519::KeyPair::from(&secret));
-        let wallet = Wallet::new(config.wallet_address.workchain, keypair, dst.clone());
+        let key = Arc::new(ed25519_dalek::SigningKey::from_bytes(
+            config.wallet_secret.as_array(),
+        ));
+        let wallet = Wallet::new(config.wallet_address.workchain, key, dst.clone());
         anyhow::ensure!(
             *wallet.address() == config.wallet_address,
             "wallet address mismatch for {}: expected={}, got={}",
@@ -148,7 +148,7 @@ impl Uploader {
             anyhow::bail!("no prev_vset found");
         };
         let signatures =
-            prepare_signatures(key_block.signatures.iter().cloned().map(Ok), &prev_vset)?;
+            prepare_signatures(key_block.signatures.iter().cloned().map(Ok), prev_vset)?;
 
         // Deploy library.
         let id = rand::thread_rng().gen();
@@ -287,12 +287,10 @@ impl Uploader {
         const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
         loop {
-            let res = wallet::get_state_with_retries(
-                self.dst.as_ref(),
-                &self.config.bridge_address,
-                None,
-            )
-            .await;
+            let res = self
+                .dst
+                .get_account_state_with_retries(&self.config.bridge_address, None)
+                .await;
 
             match res {
                 AccountStateResponse::Exists {
