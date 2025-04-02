@@ -42,10 +42,10 @@ impl Cmd {
                 anyhow::bail!("config file already exists, use --force to overwrite");
             }
 
-            let mut config = NodeConfig::default();
-            // Always disable RPC by default.
-            // TODO: Remove from light nodes.
-            config.rpc = None;
+            let config = NodeConfig {
+                rpc: None,
+                ..Default::default()
+            };
 
             std::fs::write(config_path, serde_json::to_string_pretty(&config).unwrap())?;
             return Ok(());

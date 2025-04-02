@@ -435,6 +435,7 @@ sync-service run --config config.json
           "bridge_address": "EQDdxyy8DtX1uH8aDJaaGaC2Wt6W19nQapjaYuJz3Kn8ZbQM",
           "lib_store_value": "30000000",
           "store_vset_value": "100000000",
+          "min_required_balance": "1000000000",
           "wallet_address": "0:fb08b6d52c6c687bdc1b4e4e3b5bc62d7242fc5828c074fd37daece4b49b4aca",
           "wallet_secret": "dcc10f69ff2d8b68851f27e9ac036c07305236dc661e6859786b604161c12247"
         }
@@ -447,6 +448,7 @@ sync-service run --config config.json
           "bridge_address": "EQAondW7AWhz3Y3qEN8AvfCzotmGcJ6LInMe6An1CZgLpgOR",
           "lib_store_value": "10000000000",
           "store_vset_value": "5000000000",
+          "min_required_balance": "10000000000",
           "wallet_address": "0:fb08b6d52c6c687bdc1b4e4e3b5bc62d7242fc5828c074fd37daece4b49b4aca",
           "wallet_secret": "dcc10f69ff2d8b68851f27e9ac036c07305236dc661e6859786b604161c12247"
         }

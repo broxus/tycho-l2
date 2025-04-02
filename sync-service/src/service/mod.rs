@@ -36,6 +36,8 @@ pub struct UploaderConfig {
     pub lib_store_value: u128,
     #[serde(with = "serde_helpers::string")]
     pub store_vset_value: u128,
+    #[serde(with = "serde_helpers::string")]
+    pub min_required_balance: u128,
 
     #[serde(default = "default_poll_interval")]
     pub poll_interval: Duration,
@@ -78,7 +80,12 @@ impl Uploader {
         let key = Arc::new(ed25519_dalek::SigningKey::from_bytes(
             config.wallet_secret.as_array(),
         ));
-        let wallet = Wallet::new(config.wallet_address.workchain, key, dst.clone());
+        let wallet = Wallet::new(
+            config.wallet_address.workchain,
+            key,
+            dst.clone(),
+            Tokens::new(config.min_required_balance),
+        );
         anyhow::ensure!(
             *wallet.address() == config.wallet_address,
             "wallet address mismatch for {}: expected={}, got={}",

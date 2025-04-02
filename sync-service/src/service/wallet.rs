@@ -1,4 +1,5 @@
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use everscale_types::abi::*;
@@ -26,6 +27,7 @@ impl Wallet {
         workchain: i8,
         key: Arc<ed25519_dalek::SigningKey>,
         client: Arc<dyn NetworkClient>,
+        min_required_balance: Tokens,
     ) -> Self {
         let address = compute_address(workchain, &make_state_init((*key).as_ref()));
 
@@ -34,6 +36,7 @@ impl Wallet {
                 address,
                 key,
                 client,
+                min_required_balance,
             }),
         }
     }
@@ -188,6 +191,11 @@ impl Wallet {
 
         let ttl = timeout.clamp(1, 60);
 
+        let message_value = match message.load()?.info {
+            RelaxedMsgInfo::Int(info) => info.value.tokens,
+            RelaxedMsgInfo::ExtOut(_) => Tokens::ZERO,
+        };
+
         let AbiValue::Tuple(inputs) = methods::SendTransactionInputs {
             flags,
             message: message.into_inner(),
@@ -196,24 +204,10 @@ impl Wallet {
             unreachable!();
         };
 
-        // TODO: Wait for balance.
-        let known_lt;
-        let init = match this.client.get_account_state(&this.address, None).await? {
-            AccountStateResponse::Exists {
-                account,
-                last_transaction_id,
-                ..
-            } => {
-                known_lt = last_transaction_id.lt;
-                match &account.state {
-                    AccountState::Active(..) => None,
-                    AccountState::Frozen(..) => anyhow::bail!("wallet is frozen"),
-                    AccountState::Uninit => Some(make_state_init((*this.key).as_ref())),
-                }
-            }
-            AccountStateResponse::Unchanged { .. } => anyhow::bail!("unexpected response"),
-            AccountStateResponse::NotExists { .. } => anyhow::bail!("wallet does not exist"),
-        };
+        // Wait for balance.
+        let WalletState { known_lt, init } = self
+            .wait_for_state(message_value + this.min_required_balance)
+            .await?;
 
         let now_ms = now_millis();
         let expire_at = (now_ms / 1000) as u32 + ttl;
@@ -241,12 +235,74 @@ impl Wallet {
             .send_message_reliable(&this.address, message_cell, known_lt, expire_at)
             .await
     }
+
+    async fn wait_for_state(&self, target_balance: Tokens) -> Result<WalletState> {
+        const POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+        let address = &self.inner.address;
+        let client = self.inner.client.as_ref();
+
+        let mut known_lt = None;
+        let mut first = true;
+        loop {
+            'state: {
+                let AccountStateResponse::Exists {
+                    account,
+                    last_transaction_id,
+                    ..
+                } = client
+                    .get_account_state_with_retries(address, known_lt)
+                    .await
+                else {
+                    break 'state;
+                };
+
+                known_lt = Some(last_transaction_id.lt);
+
+                let with_state_init = match &account.state {
+                    AccountState::Uninit => true,
+                    AccountState::Active(..) => false,
+                    AccountState::Frozen(..) => anyhow::bail!("wallet is frozen"),
+                };
+
+                if account.balance.tokens >= target_balance {
+                    return Ok(WalletState {
+                        known_lt: last_transaction_id.lt,
+                        init: with_state_init.then(|| make_state_init((*self.inner.key).as_ref())),
+                    });
+                }
+
+                if std::mem::take(&mut first) {
+                    tracing::warn!(
+                        %address,
+                        balance = %account.balance.tokens,
+                        %target_balance,
+                        "wallet balance is not enough, waiting for more"
+                    );
+                } else {
+                    tracing::debug!(
+                        balance = %account.balance.tokens,
+                        %target_balance,
+                        "wallet balance is not enough"
+                    );
+                }
+            }
+
+            tokio::time::sleep(POLL_INTERVAL).await;
+        }
+    }
+}
+
+struct WalletState {
+    known_lt: u64,
+    init: Option<StateInit>,
 }
 
 struct Inner {
     address: StdAddr,
     key: Arc<ed25519_dalek::SigningKey>,
     client: Arc<dyn NetworkClient>,
+    min_required_balance: Tokens,
 }
 
 pub fn make_state_init(pubkey: &ed25519_dalek::VerifyingKey) -> StateInit {

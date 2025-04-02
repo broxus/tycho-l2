@@ -20,6 +20,7 @@ pub struct Cmd {
 }
 
 impl Cmd {
+    #[allow(clippy::print_stdout)]
     pub async fn run(self) -> Result<()> {
         let mut secret = None;
         let public = match self.public {
