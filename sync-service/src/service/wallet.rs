@@ -6,7 +6,7 @@ use everscale_types::abi::*;
 use everscale_types::cell::Lazy;
 use everscale_types::models::{
     AccountState, ExtInMsgInfo, Message, MsgInfo, OwnedRelaxedMessage, RelaxedIntMsgInfo,
-    RelaxedMessage, RelaxedMsgInfo, StateInit, StdAddr, Transaction, ValidatorSet,
+    RelaxedMessage, RelaxedMsgInfo, StateInit, StdAddr, Transaction,
 };
 use everscale_types::num::{Tokens, Uint15};
 use everscale_types::prelude::*;
@@ -47,12 +47,11 @@ impl Wallet {
 
     pub async fn deploy_vset_lib(
         &self,
-        vset: &ValidatorSet,
+        epoch_data: Cell,
         value: Tokens,
         id: u128,
     ) -> Result<StdAddr> {
         // Compute vset data and the lib_store address.
-        let vset_data = lib_store::make_epoch_data(vset).context("failed to build epoch data")?;
         let state_init = lib_store::make_state_init(&self.inner.address, id);
         let address = compute_address(-1, &state_init);
 
@@ -79,7 +78,7 @@ impl Wallet {
 
         // Build internal message.
         let mut body = CellBuilder::new();
-        body.store_reference(vset_data)?;
+        body.store_reference(epoch_data)?;
         let body = body.as_full_slice();
 
         let message = Lazy::new(&RelaxedMessage {

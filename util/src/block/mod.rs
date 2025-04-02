@@ -6,6 +6,7 @@ use everscale_types::models::{
     Block, BlockId, BlockIdShort, BlockSignature, BlockchainConfig, CurrencyCollection, ShardIdent,
     ValidatorBaseInfo, ValidatorSet,
 };
+use everscale_types::num::Tokens;
 use everscale_types::prelude::*;
 
 pub use self::ton::TonModels;
@@ -149,6 +150,40 @@ where
         end_lt: info.end_lt(),
         shard_ids,
     })
+}
+
+/// Converts validator set into an epoch data to be stored as library.
+pub fn make_epoch_data(vset: &ValidatorSet) -> Result<Cell, Error> {
+    let main_validator_count = vset.main.get() as usize;
+    if vset.list.len() < main_validator_count {
+        return Err(Error::InvalidData);
+    }
+
+    let mut total_weight = 0u64;
+    let mut main_validators = Vec::new();
+    for (i, item) in vset.list[..main_validator_count].iter().enumerate() {
+        main_validators.push((i as u16, (item.public_key, item.weight)));
+        total_weight = total_weight
+            .checked_add(item.weight)
+            .ok_or(Error::IntOverflow)?;
+    }
+    assert_eq!(main_validators.len(), main_validator_count);
+
+    let Some(root) =
+        Dict::<u16, (HashBytes, u64)>::try_from_sorted_slice(&main_validators)?.into_root()
+    else {
+        return Err(Error::CellUnderflow);
+    };
+
+    let cutoff_weight = (total_weight as u128) * 2 / 3 + 1;
+
+    let mut b = CellBuilder::new();
+    b.store_u32(vset.utime_since)?;
+    b.store_u32(vset.utime_until)?;
+    b.store_u16(vset.main.get())?;
+    Tokens::new(cutoff_weight).store_into(&mut b, Cell::empty_context())?;
+    b.store_reference(root)?;
+    b.build()
 }
 
 /// Prepares a signatures dict with validator indices as keys.

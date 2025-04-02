@@ -77,6 +77,24 @@ impl LiteClient {
         Ok(status.status)
     }
 
+    pub async fn get_library(&self, lib_hash: &HashBytes) -> Result<Option<Cell>> {
+        let res = self
+            .query::<_, proto::LibraryResult>(proto::rpc::GetLibraries {
+                library_list: std::slice::from_ref(lib_hash.as_array()),
+            })
+            .await?;
+
+        let Some(lib) = res
+            .result
+            .into_iter()
+            .find_map(|item| (item.hash == lib_hash.0).then_some(item.data))
+        else {
+            return Ok(None);
+        };
+
+        Boc::decode(lib).map_err(Into::into).map(Some)
+    }
+
     pub async fn get_block(&self, id: &BlockId) -> Result<Cell> {
         let block = self
             .query::<_, proto::BlockData>(proto::rpc::GetBlock { id: *id })

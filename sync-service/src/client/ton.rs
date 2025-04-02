@@ -129,6 +129,10 @@ impl NetworkClient for TonClient {
         })
     }
 
+    async fn get_library_cell(&self, lib_hash: &HashBytes) -> Result<Option<Cell>> {
+        self.rpc.get_library(lib_hash).await
+    }
+
     async fn get_account_state(
         &self,
         account: &StdAddr,

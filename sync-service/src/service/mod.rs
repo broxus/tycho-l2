@@ -11,7 +11,7 @@ use everscale_types::models::{
 use everscale_types::num::Tokens;
 use nekoton_abi::execution_context::ExecutionContextBuilder;
 use num_traits::ToPrimitive;
-use proof_api_util::block::prepare_signatures;
+use proof_api_util::block::{make_epoch_data, prepare_signatures};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tycho_util::serde_helpers;
@@ -64,6 +64,7 @@ pub struct Uploader {
     key_blocks_cache: BTreeMap<u32, Arc<KeyBlockData>>,
     wallet: Wallet,
     min_bridge_state_lt: u64,
+    last_checked_vset: u32,
 }
 
 impl Uploader {
@@ -102,6 +103,7 @@ impl Uploader {
             key_blocks_cache: Default::default(),
             wallet,
             min_bridge_state_lt: 0,
+            last_checked_vset: 0,
         })
     }
 
@@ -123,7 +125,11 @@ impl Uploader {
             .get_current_epoch_since()
             .await
             .context("failed to get current epoch")?;
-        tracing::info!(current_vset_utime_since);
+
+        if current_vset_utime_since != self.last_checked_vset {
+            tracing::info!(current_vset_utime_since);
+            self.last_checked_vset = current_vset_utime_since;
+        }
 
         let Some(key_block) = self.find_next_key_block(current_vset_utime_since).await? else {
             tracing::debug!(current_vset_utime_since, "no new key blocks found");
@@ -157,22 +163,44 @@ impl Uploader {
         let signatures =
             prepare_signatures(key_block.signatures.iter().cloned().map(Ok), prev_vset)?;
 
-        // Deploy library.
-        let id = rand::thread_rng().gen();
-        let lib_store = self
-            .wallet
-            .deploy_vset_lib(
-                &key_block.current_vset,
-                Tokens::new(self.config.lib_store_value),
-                id,
-            )
-            .await
-            .context("failed to deploy a library with validator set")?;
-        tracing::info!(
-            seqno = %key_block.block_id.seqno,
-            address = %lib_store,
-            "deployed a lib_store for key block",
-        );
+        // Deploy library with the next epoch data.
+        let epoch_data =
+            make_epoch_data(&key_block.current_vset).context("failed to build epoch data")?;
+
+        'store_lib: {
+            match self.dst.get_library_cell(epoch_data.repr_hash()).await {
+                Ok(Some(lib)) if lib.repr_hash() == epoch_data.repr_hash() => {
+                    tracing::info!(
+                        seqno = %key_block.block_id.seqno,
+                        lib_hash = %lib.repr_hash(),
+                        "epoch data library is already deployed"
+                    );
+                    break 'store_lib;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!("failed to find the deployed epoch data library: {e:?}");
+                }
+            }
+
+            tracing::info!(
+                seqno = %key_block.block_id.seqno,
+                lib_hash = %epoch_data.repr_hash(),
+                "deployting a new epoch data library"
+            );
+
+            let id = rand::thread_rng().gen();
+            let lib_store = self
+                .wallet
+                .deploy_vset_lib(epoch_data, Tokens::new(self.config.lib_store_value), id)
+                .await
+                .context("failed to deploy a library with validator set")?;
+            tracing::info!(
+                seqno = %key_block.block_id.seqno,
+                address = %lib_store,
+                "deployed a lib_store for key block",
+            );
+        };
 
         // Send key block.
         let tx = self

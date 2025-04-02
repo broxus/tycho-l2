@@ -30,6 +30,8 @@ pub trait NetworkClient: Send + Sync {
 
     async fn get_key_block(&self, seqno: u32) -> Result<KeyBlockData>;
 
+    async fn get_library_cell(&self, lib_hash: &HashBytes) -> Result<Option<Cell>>;
+
     async fn get_account_state(
         &self,
         account: &StdAddr,

@@ -224,7 +224,7 @@ where
                 packet.extend_from_slice(buffer);
             }
             Err(e) => {
-                tracing::warn!(?e, "socket error");
+                tracing::debug!(?e, "socket error");
                 return e;
             }
         }

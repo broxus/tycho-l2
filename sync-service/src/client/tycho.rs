@@ -52,6 +52,10 @@ impl NetworkClient for TychoClient {
         Ok(self.rpc.get_latest_config().await?.config)
     }
 
+    async fn get_library_cell(&self, lib_hash: &HashBytes) -> Result<Option<Cell>> {
+        Ok(self.rpc.get_library_cell(lib_hash).await?.cell)
+    }
+
     async fn get_key_block(&self, seqno: u32) -> Result<KeyBlockData> {
         let res = self.rpc.get_key_block_proof(seqno).await?;
         let Some(proof) = res.proof else {

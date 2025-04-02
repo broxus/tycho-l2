@@ -48,6 +48,20 @@ impl JrpcClient {
         .context("failed to send message")
     }
 
+    pub async fn get_library_cell(&self, hash: &HashBytes) -> Result<LibraryCellResponse> {
+        #[derive(Serialize)]
+        struct Params<'a> {
+            hash: &'a HashBytes,
+        }
+
+        self.post(&JrpcRequest {
+            method: "getLibraryCell",
+            params: &Params { hash },
+        })
+        .await
+        .context("failed to get library cell")
+    }
+
     pub async fn get_transactions(
         &self,
         account: &StdAddr,
@@ -173,6 +187,12 @@ pub struct BlockProofResponse {
     #[serde(default, with = "serde_helpers::option_string")]
     pub block_id: Option<BlockId>,
     pub proof: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LibraryCellResponse {
+    #[serde(with = "Boc")]
+    pub cell: Option<Cell>,
 }
 
 struct JrpcRequest<'a, T> {

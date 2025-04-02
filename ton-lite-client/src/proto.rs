@@ -145,6 +145,18 @@ pub struct ConfigInfo {
 }
 
 #[derive(Debug, TlRead)]
+#[tl(boxed, id = "liteServer.libraryResult", scheme = "proto.tl")]
+pub struct LibraryResult {
+    pub result: Vec<LibraryEntry>,
+}
+
+#[derive(Debug, TlRead)]
+pub struct LibraryEntry {
+    pub hash: [u8; 32],
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, TlRead)]
 #[tl(boxed, id = "liteServer.transactionList", scheme = "proto.tl")]
 pub struct TransactionList {
     #[tl(with = "tl_vec_block_id_full")]
@@ -261,6 +273,12 @@ pub mod rpc {
         pub mode: (),
         #[tl(with = "tl_block_id_full")]
         pub id: BlockId,
+    }
+
+    #[derive(Clone, Debug, TlWrite)]
+    #[tl(boxed, id = "liteServer.getLibraries", scheme = "proto.tl")]
+    pub struct GetLibraries<'a> {
+        pub library_list: &'a [[u8; 32]],
     }
 
     #[derive(Clone, Debug, TlWrite)]
