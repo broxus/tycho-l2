@@ -523,17 +523,9 @@ impl ProofStorage {
                         assert!(tables::PivotBlocks::KEY_LEN == tables::PrunedBlocks::KEY_LEN);
                     }
 
-                    for key in bound.iter_block_keys() {
-                        batch.delete_range_cf(
-                            pivot_blocks_cf,
-                            [0; tables::PivotBlocks::KEY_LEN],
-                            key,
-                        );
-                        batch.delete_range_cf(
-                            pruned_blocks_cf,
-                            [0; tables::PrunedBlocks::KEY_LEN],
-                            key,
-                        );
+                    for (from_key, to_key) in bound.iter_block_keys() {
+                        batch.delete_range_cf(pivot_blocks_cf, from_key, to_key);
+                        batch.delete_range_cf(pruned_blocks_cf, from_key, to_key);
                     }
                 }
             }
@@ -575,7 +567,7 @@ impl OutdatedBound {
         key
     }
 
-    fn iter_block_keys(&self) -> impl Iterator<Item = [u8; tables::PivotBlocks::KEY_LEN]> + '_ {
+    fn iter_block_keys(&self) -> impl Iterator<Item = (BlockKey, BlockKey)> + '_ {
         self.blocks.iter().filter_map(|block_id| {
             let Ok::<i8, _>(workchain) = block_id.shard.workchain().try_into() else {
                 return None;
@@ -587,12 +579,16 @@ impl OutdatedBound {
             let mut key = [0; tables::PivotBlocks::KEY_LEN];
             key[0] = workchain as u8;
             key[1..9].copy_from_slice(&block_id.shard.prefix().to_be_bytes());
+
+            let from = key;
             key[9..13].copy_from_slice(&seqno.to_be_bytes());
 
-            Some(key)
+            Some((from, key))
         })
     }
 }
+
+type BlockKey = [u8; tables::PivotBlocks::KEY_LEN];
 
 fn find_outdated_bound(db: &ProofDb, remove_until: u32) -> Result<Option<OutdatedBound>> {
     let until_mc_seqno = {
