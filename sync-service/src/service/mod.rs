@@ -186,7 +186,7 @@ impl Uploader {
             tracing::info!(
                 seqno = %key_block.block_id.seqno,
                 lib_hash = %epoch_data.repr_hash(),
-                "deployting a new epoch data library"
+                "deploying a new epoch data library"
             );
 
             let id = rand::thread_rng().gen();

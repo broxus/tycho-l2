@@ -245,15 +245,27 @@ impl Wallet {
         let mut first = true;
         loop {
             'state: {
-                let AccountStateResponse::Exists {
-                    account,
-                    last_transaction_id,
-                    ..
-                } = client
+                let (account, last_transaction_id) = match client
                     .get_account_state_with_retries(address, known_lt)
                     .await
-                else {
-                    break 'state;
+                {
+                    AccountStateResponse::Exists {
+                        account,
+                        last_transaction_id,
+                        ..
+                    } => (account, last_transaction_id),
+                    AccountStateResponse::NotExists { .. } => {
+                        if std::mem::take(&mut first) {
+                            tracing::warn!(
+                                %address,
+                                balance = %Tokens::ZERO,
+                                %target_balance,
+                                "wallet balance is not enough, waiting for more"
+                            );
+                        }
+                        break 'state;
+                    }
+                    AccountStateResponse::Unchanged { .. } => break 'state,
                 };
 
                 known_lt = Some(last_transaction_id.lt);
