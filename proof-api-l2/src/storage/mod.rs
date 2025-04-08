@@ -571,7 +571,7 @@ impl OutdatedBound {
         let lt = self.lt + 1;
 
         let mut key = [0; tables::Transactions::KEY_LEN];
-        key[0..32].copy_from_slice(&lt.to_be_bytes());
+        key[0..8].copy_from_slice(&lt.to_be_bytes());
         key
     }
 
