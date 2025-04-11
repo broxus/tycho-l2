@@ -2176,6 +2176,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
  "tikv-jemallocator",
  "tokio",
  "ton-lite-client",

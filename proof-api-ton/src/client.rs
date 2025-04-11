@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{BlockId, BlockRef, ShardIdent, StdAddr, ValidatorSet};
+use everscale_types::models::{
+    BlockId, BlockRef, ConfigParam34, ShardIdent, StdAddr, ValidatorSet,
+};
 use everscale_types::prelude::*;
 use proof_api_util::block::{
     self, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels,
@@ -61,7 +63,8 @@ impl TonClient {
                 .context("failed to get mc block proof")?;
 
             // Build signatures dict.
-            let mc = parse_mc_block_proof(mc_block_link, &block_id)?;
+            let mc = self.parse_mc_block_proof(mc_block_link, &block_id).await?;
+
             vset_utime_since = mc.vset_utime_since;
             signatures = mc.signatures;
         } else {
@@ -89,7 +92,9 @@ impl TonClient {
                 .context("failed to get mc block proof")?;
 
             // Build signatures dict.
-            let mc = parse_mc_block_proof(mc_block_link, &mc_block_id)?;
+            let mc = self
+                .parse_mc_block_proof(mc_block_link, &mc_block_id)
+                .await?;
             vset_utime_since = mc.vset_utime_since;
             signatures = mc.signatures;
 
@@ -161,56 +166,109 @@ impl TonClient {
 
         Ok(block_id)
     }
-}
 
-fn parse_current_vset<T: AsRef<[u8]>>(config_proof: T) -> Result<ValidatorSet> {
-    let proof = Boc::decode(config_proof)?.parse_exotic::<MerkleProof>()?;
-    let block = proof
-        .cell
-        .parse::<<TonModels as BlockchainModels>::Block>()?;
-
-    block
-        .load_extra()?
-        .load_custom()?
-        .context("config proof without custom")?
-        .config()
-        .context("expected key block")?
-        .get_current_validator_set()
-        .context("failed to load current vset")
-}
-
-fn parse_mc_block_proof(
-    partial: proto::PartialBlockProof,
-    mc_block_id: &BlockId,
-) -> Result<McProof> {
-    let forward = 'proof: {
-        for step in partial.steps {
-            if let proto::BlockLink::BlockLinkForward(step) = step {
-                break 'proof step;
+    async fn parse_mc_block_proof(
+        &self,
+        partial: proto::PartialBlockProof,
+        mc_block_id: &BlockId,
+    ) -> Result<McProof> {
+        let forward = 'proof: {
+            for step in partial.steps {
+                if let proto::BlockLink::BlockLinkForward(step) = step {
+                    break 'proof step;
+                }
             }
-        }
 
-        anyhow::bail!("forward proof step not found");
-    };
+            anyhow::bail!("forward proof step not found");
+        };
 
-    anyhow::ensure!(forward.to == *mc_block_id, "proof link id mismatch");
+        anyhow::ensure!(forward.to == *mc_block_id, "proof link id mismatch");
 
-    let vset = parse_current_vset(forward.config_proof).context("failed to config proof")?;
-    let signatures =
-        block::prepare_signatures(forward.signatures.signatures.into_iter().map(Ok), &vset)
-            .context("failed to prepare block signature")?;
+        let mut config_proof = Boc::decode(forward.config_proof)
+            .context("failed to parse config proof")?
+            .parse_exotic::<MerkleProof>()
+            .context("failed to parse config proof cell")?
+            .cell;
 
-    Ok(McProof {
-        header_proof: forward.dest_proof,
-        vset_utime_since: vset.utime_since,
-        signatures,
-    })
+        let vset = 'vset: {
+            for _ in 0..2 {
+                match parse_current_vset(config_proof) {
+                    Ok(vset) => break 'vset vset,
+                    Err(ParseVsetError::Invalid(e)) => return Err(e),
+                    Err(ParseVsetError::PrunedVset) => {
+                        tracing::debug!("fallback to downloading a full key block");
+                        config_proof = self
+                            .lite_client
+                            .get_block(&forward.from)
+                            .await
+                            .context("Failed to get the previous key block")?;
+                    }
+                }
+            }
+
+            return Err(ParseVsetError::PrunedVset.into());
+        };
+
+        let signatures =
+            block::prepare_signatures(forward.signatures.signatures.into_iter().map(Ok), &vset)
+                .context("failed to prepare block signature")?;
+
+        Ok(McProof {
+            header_proof: forward.dest_proof,
+            vset_utime_since: vset.utime_since,
+            signatures,
+        })
+    }
 }
 
 struct McProof {
     header_proof: Vec<u8>,
     vset_utime_since: u32,
     signatures: Cell,
+}
+
+fn parse_current_vset(config_proof: Cell) -> Result<ValidatorSet, ParseVsetError> {
+    let block = config_proof.parse::<<TonModels as BlockchainModels>::Block>()?;
+
+    let mc_extra = block
+        .load_extra()?
+        .load_custom()?
+        .context("config proof without custom")?;
+
+    let config = mc_extra.config().cloned().context("expected key block")?;
+    let Some(vset_cell) = config
+        .get_raw_cell(34)
+        .context("failed to get current vset")?
+    else {
+        return Err(ParseVsetError::Invalid(anyhow::anyhow!(
+            "current validator set not found"
+        )));
+    };
+
+    if vset_cell.descriptor().is_pruned_branch() {
+        return Err(ParseVsetError::PrunedVset);
+    }
+
+    config
+        .get::<ConfigParam34>()
+        .context("failed to load current vset")?
+        .context("current validator set not found")
+        .map_err(ParseVsetError::Invalid)
+}
+
+#[derive(thiserror::Error, Debug)]
+enum ParseVsetError {
+    #[error(transparent)]
+    Invalid(#[from] anyhow::Error),
+    #[error("current vset cell is pruned")]
+    PrunedVset,
+}
+
+impl From<everscale_types::error::Error> for ParseVsetError {
+    #[inline]
+    fn from(value: everscale_types::error::Error) -> Self {
+        Self::Invalid(value.into())
+    }
 }
 
 fn merge_mc_block_proof(
