@@ -301,7 +301,7 @@ pub fn make_proof_chain(
         let remaining = iter.len();
         let mut child = if remaining % 3 != 0 {
             let mut b = CellBuilder::new();
-            for cell in iter.by_ref().take(remaining % 3) {
+            for cell in iter.by_ref().take(remaining % 3).rev() {
                 b.store_reference(cell.clone())?;
             }
             Some(b.build()?)

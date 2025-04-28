@@ -319,7 +319,7 @@ impl ProofStorage {
                 );
 
                 // Iterate intermediate shard blocks in reverse order until the latest one.
-                for seqno in (mc.latest_shard_seqno..tx_block_seqno).rev() {
+                for seqno in (tx_block_seqno + 1..=mc.latest_shard_seqno).rev() {
                     check(&cancelled)?;
 
                     block_key[9..13].copy_from_slice(&seqno.to_be_bytes());
