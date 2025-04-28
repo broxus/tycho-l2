@@ -9,7 +9,6 @@ use everscale_types::models::{
     Account, AccountState, BlockchainConfig, ComputePhase, StdAddr, TxInfo,
 };
 use everscale_types::num::Tokens;
-use nekoton_abi::execution_context::ExecutionContextBuilder;
 use num_traits::ToPrimitive;
 use proof_api_util::block::{make_epoch_data, prepare_signatures};
 use rand::Rng;
@@ -19,6 +18,7 @@ use tycho_util::serde_helpers;
 use self::wallet::Wallet;
 use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;
+use crate::util::getter::ExecutionContext;
 
 pub mod lib_store;
 pub mod wallet;
@@ -295,13 +295,13 @@ impl Uploader {
     async fn get_current_epoch_since(&self) -> Result<u32> {
         let account = self.get_bridge_account().await;
 
-        let context = ExecutionContextBuilder::new(&account)
-            .with_config(self.blockchain_config.clone())
-            .build()
-            .context("build executor failed")?;
+        let context = ExecutionContext {
+            account: &account,
+            config: &self.blockchain_config,
+        };
 
         let result = context
-            .run_getter("get_state_short", &[])
+            .call_getter("get_state_short", Vec::new())
             .context("run_getter failed")?;
         anyhow::ensure!(
             result.success,

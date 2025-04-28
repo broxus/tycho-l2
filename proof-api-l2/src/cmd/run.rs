@@ -280,11 +280,6 @@ impl LightSubscriber {
                 .await?;
         }
 
-        // Mark block as applied.
-        self.storage
-            .block_handle_storage()
-            .set_block_applied(&handle);
-
         // Update proofs storage snapshot on masterchain blocks.
         if cx.block.id().is_masterchain() {
             self.proofs.update_snapshot();

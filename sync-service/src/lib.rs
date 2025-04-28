@@ -6,6 +6,7 @@ pub mod service;
 
 pub mod util {
     pub mod account;
+    pub mod getter;
     pub mod jrpc_client;
 }
 

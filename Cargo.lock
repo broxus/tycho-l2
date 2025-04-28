@@ -591,9 +591,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.14"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ba6d68e24814cb8de6bb986db8222d3a027d15872cabc0d18817bc3c0e4471"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -671,9 +671,9 @@ dependencies = [
 
 [[package]]
 name = "darling"
-version = "0.20.10"
+version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f63b86c8a8826a49b8c21f08a2d07338eec8d900540f8630dc76284be802989"
+checksum = "fc7f46116c46ff9ab3eb1597a45688b6715c6e628b5c133e288e709a29bcb4ee"
 dependencies = [
  "darling_core",
  "darling_macro",
@@ -681,9 +681,9 @@ dependencies = [
 
 [[package]]
 name = "darling_core"
-version = "0.20.10"
+version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95133861a8032aaea082871032f5815eb9e98cef03fa916ab4500513994df9e5"
+checksum = "0d00b9596d185e565c2207a0b01f8bd1a135483d02d9b7b0a54b11da8d53412e"
 dependencies = [
  "fnv",
  "ident_case",
@@ -695,9 +695,9 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
-version = "0.20.10"
+version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d336a2a514f6ccccaa3e09b02d41d35330c07ddf03a62165fcec10bb561c7806"
+checksum = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead"
 dependencies = [
  "darling_core",
  "quote",
@@ -749,9 +749,9 @@ dependencies = [
 
 [[package]]
 name = "deranged"
-version = "0.4.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28cfac68e08048ae1883171632c2aef3ebc555621ae56fbccce1cbf22dd7f058"
+checksum = "9c9e6a11ca8224451684bc0d7d5a7adbf8f2fd6887261a1cfc3c0432f9d4068e"
 dependencies = [
  "powerfmt",
 ]
@@ -872,7 +872,7 @@ dependencies = [
 [[package]]
 name = "everscale-types"
 version = "0.1.2"
-source = "git+https://github.com/broxus/everscale-types.git?rev=ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353#ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353"
+source = "git+https://github.com/broxus/everscale-types.git?rev=82c343b2bd17ceb51db0575b6b8ee821ccda037e#82c343b2bd17ceb51db0575b6b8ee821ccda037e"
 dependencies = [
  "ahash",
  "anyhow",
@@ -883,6 +883,7 @@ dependencies = [
  "crc32c",
  "ed25519-dalek",
  "everscale-crypto",
+ "everscale-types-abi-proc",
  "everscale-types-proc",
  "hex",
  "num-bigint",
@@ -899,9 +900,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "everscale-types-abi-proc"
+version = "0.1.0"
+source = "git+https://github.com/broxus/everscale-types.git?rev=82c343b2bd17ceb51db0575b6b8ee821ccda037e#82c343b2bd17ceb51db0575b6b8ee821ccda037e"
+dependencies = [
+ "anyhow",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "everscale-types-proc"
 version = "0.1.5"
-source = "git+https://github.com/broxus/everscale-types.git?rev=ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353#ebc5b4e0f90d1c48a8c8376aa9cf77fc16027353"
+source = "git+https://github.com/broxus/everscale-types.git?rev=82c343b2bd17ceb51db0575b6b8ee821ccda037e#82c343b2bd17ceb51db0575b6b8ee821ccda037e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1839,31 +1851,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nekoton-abi"
-version = "0.0.1"
-source = "git+https://github.com/broxus/tycho-nekoton.git?rev=f783c742ca1b0dcd0cdf7eb1cc67a1c498d10295#f783c742ca1b0dcd0cdf7eb1cc67a1c498d10295"
-dependencies = [
- "anyhow",
- "everscale-types",
- "nekoton-utils",
- "num-bigint",
- "num-traits",
- "tracing-subscriber",
- "tycho-executor",
- "tycho-vm",
-]
-
-[[package]]
-name = "nekoton-utils"
-version = "0.0.1"
-source = "git+https://github.com/broxus/tycho-nekoton.git?rev=f783c742ca1b0dcd0cdf7eb1cc67a1c498d10295#f783c742ca1b0dcd0cdf7eb1cc67a1c498d10295"
-dependencies = [
- "anyhow",
- "everscale-types",
- "serde",
-]
-
-[[package]]
 name = "nibble_vec"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2128,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "proof-api-l2"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ahash",
  "aide",
@@ -2164,7 +2151,7 @@ dependencies = [
 
 [[package]]
 name = "proof-api-ton"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aide",
  "anyhow",
@@ -2189,7 +2176,7 @@ dependencies = [
 
 [[package]]
 name = "proof-api-util"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ahash",
  "aide",
@@ -2984,7 +2971,7 @@ dependencies = [
 
 [[package]]
 name = "sync-service"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2992,7 +2979,7 @@ dependencies = [
  "ed25519-dalek",
  "everscale-types",
  "futures-util",
- "nekoton-abi",
+ "num-bigint",
  "num-traits",
  "proof-api-util",
  "rand 0.8.5",
@@ -3005,6 +2992,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tycho-util",
+ "tycho-vm",
 ]
 
 [[package]]
@@ -3292,7 +3280,7 @@ dependencies = [
 
 [[package]]
 name = "ton-lite-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "ahash",
@@ -3482,8 +3470,8 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tycho-block-util"
-version = "0.2.6"
-source = "git+https://github.com/broxus/tycho.git?rev=97ac77d8bafd1d2724b5296f784db5b23941659d#97ac77d8bafd1d2724b5296f784db5b23941659d"
+version = "0.2.7"
+source = "git+https://github.com/broxus/tycho.git?rev=35a9a15b517c8e1fb291fd5c4a1cb14a5899c834#35a9a15b517c8e1fb291fd5c4a1cb14a5899c834"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3499,8 +3487,8 @@ dependencies = [
 
 [[package]]
 name = "tycho-core"
-version = "0.2.6"
-source = "git+https://github.com/broxus/tycho.git?rev=97ac77d8bafd1d2724b5296f784db5b23941659d#97ac77d8bafd1d2724b5296f784db5b23941659d"
+version = "0.2.7"
+source = "git+https://github.com/broxus/tycho.git?rev=35a9a15b517c8e1fb291fd5c4a1cb14a5899c834#35a9a15b517c8e1fb291fd5c4a1cb14a5899c834"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3527,22 +3515,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "tycho-executor"
-version = "0.1.0"
-source = "git+https://github.com/broxus/tycho-vm.git#fb7421d652ebee4c1557ae12cfe642ba36b66008"
-dependencies = [
- "ahash",
- "anyhow",
- "everscale-types",
- "num-bigint",
- "thiserror 2.0.12",
- "tycho-vm",
-]
-
-[[package]]
 name = "tycho-light-node"
-version = "0.2.6"
-source = "git+https://github.com/broxus/tycho.git?rev=97ac77d8bafd1d2724b5296f784db5b23941659d#97ac77d8bafd1d2724b5296f784db5b23941659d"
+version = "0.2.7"
+source = "git+https://github.com/broxus/tycho.git?rev=35a9a15b517c8e1fb291fd5c4a1cb14a5899c834#35a9a15b517c8e1fb291fd5c4a1cb14a5899c834"
 dependencies = [
  "anyhow",
  "clap",
@@ -3563,8 +3538,8 @@ dependencies = [
 
 [[package]]
 name = "tycho-network"
-version = "0.2.6"
-source = "git+https://github.com/broxus/tycho.git?rev=97ac77d8bafd1d2724b5296f784db5b23941659d#97ac77d8bafd1d2724b5296f784db5b23941659d"
+version = "0.2.7"
+source = "git+https://github.com/broxus/tycho.git?rev=35a9a15b517c8e1fb291fd5c4a1cb14a5899c834#35a9a15b517c8e1fb291fd5c4a1cb14a5899c834"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3602,8 +3577,8 @@ dependencies = [
 
 [[package]]
 name = "tycho-rpc"
-version = "0.2.6"
-source = "git+https://github.com/broxus/tycho.git?rev=97ac77d8bafd1d2724b5296f784db5b23941659d#97ac77d8bafd1d2724b5296f784db5b23941659d"
+version = "0.2.7"
+source = "git+https://github.com/broxus/tycho.git?rev=35a9a15b517c8e1fb291fd5c4a1cb14a5899c834#35a9a15b517c8e1fb291fd5c4a1cb14a5899c834"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3614,8 +3589,11 @@ dependencies = [
  "futures-util",
  "metrics",
  "moka",
+ "num-bigint",
  "parking_lot",
  "prost",
+ "rand 0.8.5",
+ "scopeguard",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -3627,12 +3605,13 @@ dependencies = [
  "tycho-core",
  "tycho-storage",
  "tycho-util",
+ "tycho-vm",
 ]
 
 [[package]]
 name = "tycho-storage"
-version = "0.2.6"
-source = "git+https://github.com/broxus/tycho.git?rev=97ac77d8bafd1d2724b5296f784db5b23941659d#97ac77d8bafd1d2724b5296f784db5b23941659d"
+version = "0.2.7"
+source = "git+https://github.com/broxus/tycho.git?rev=35a9a15b517c8e1fb291fd5c4a1cb14a5899c834#35a9a15b517c8e1fb291fd5c4a1cb14a5899c834"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3672,8 +3651,8 @@ dependencies = [
 
 [[package]]
 name = "tycho-util"
-version = "0.2.6"
-source = "git+https://github.com/broxus/tycho.git?rev=97ac77d8bafd1d2724b5296f784db5b23941659d#97ac77d8bafd1d2724b5296f784db5b23941659d"
+version = "0.2.7"
+source = "git+https://github.com/broxus/tycho.git?rev=35a9a15b517c8e1fb291fd5c4a1cb14a5899c834#35a9a15b517c8e1fb291fd5c4a1cb14a5899c834"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3707,7 +3686,7 @@ dependencies = [
 [[package]]
 name = "tycho-vm"
 version = "0.1.0"
-source = "git+https://github.com/broxus/tycho-vm.git#fb7421d652ebee4c1557ae12cfe642ba36b66008"
+source = "git+https://github.com/broxus/tycho-vm.git?rev=e3c1473a8749cde50cbf5c57166169de09e41000#e3c1473a8749cde50cbf5c57166169de09e41000"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3722,14 +3701,13 @@ dependencies = [
  "sha2",
  "thiserror 2.0.12",
  "tl-proto",
- "tracing",
  "tycho-vm-proc",
 ]
 
 [[package]]
 name = "tycho-vm-proc"
 version = "0.1.0"
-source = "git+https://github.com/broxus/tycho-vm.git#fb7421d652ebee4c1557ae12cfe642ba36b66008"
+source = "git+https://github.com/broxus/tycho-vm.git?rev=e3c1473a8749cde50cbf5c57166169de09e41000#e3c1473a8749cde50cbf5c57166169de09e41000"
 dependencies = [
  "darling",
  "proc-macro2",
