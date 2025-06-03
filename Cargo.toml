@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Broxus Team"]
 rust-version = "1.83.0"
@@ -57,20 +57,20 @@ tikv-jemallocator = { version = "0.6.0", features = [
     "background_threads",
 ] }
 
-tycho-block-util = { git = "https://github.com/broxus/tycho.git", rev = "35a9a15b517c8e1fb291fd5c4a1cb14a5899c834" }
-tycho-core = { git = "https://github.com/broxus/tycho.git", rev = "35a9a15b517c8e1fb291fd5c4a1cb14a5899c834" }
-tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "35a9a15b517c8e1fb291fd5c4a1cb14a5899c834" }
-tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "35a9a15b517c8e1fb291fd5c4a1cb14a5899c834" }
-tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "35a9a15b517c8e1fb291fd5c4a1cb14a5899c834" }
+tycho-block-util = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
+tycho-core = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
+tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
+tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
+tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
 
-tycho-vm = { git = "https://github.com/broxus/tycho-vm.git", rev = "e3c1473a8749cde50cbf5c57166169de09e41000" }
+tycho-vm = { git = "https://github.com/broxus/tycho-vm.git", rev = "c224351e576375430f4a2d66207406998d189946" }
 
 # local deps
 proof-api-util = { path = "./util" }
 ton-lite-client = { path = "./ton-lite-client" }
 
 [patch.crates-io]
-everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "82c343b2bd17ceb51db0575b6b8ee821ccda037e" }
+everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "3c23f629b5b2144d5be596dcb93fd1a146484468" }
 
 [workspace.lints.rust]
 future_incompatible = "warn"
