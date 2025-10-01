@@ -14,14 +14,6 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 ed25519-dalek = { workspace = true }
-everscale-types = { workspace = true, features = [
-    "tycho",
-    "abi",
-    "models",
-    "base64",
-    "serde",
-    "sync",
-] }
 futures-util = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
@@ -32,6 +24,14 @@ serde_json = { workspace = true, features = ["raw_value"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tycho-types = { workspace = true, features = [
+    "tycho",
+    "abi",
+    "models",
+    "base64",
+    "serde",
+    "sync",
+] }
 
 tycho-util = { workspace = true, features = ["cli"] }
 tycho-vm = { workspace = true }

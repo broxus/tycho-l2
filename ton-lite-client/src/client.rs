@@ -1,15 +1,15 @@
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
 use arc_swap::{ArcSwapAny, ArcSwapOption};
-use everscale_crypto::ed25519;
-use everscale_types::models::{BlockId, BlockIdShort, StdAddr};
-use everscale_types::prelude::*;
 use tl_proto::{TlRead, TlWrite};
 use tokio::sync::Notify;
+use tycho_crypto::ed25519;
+use tycho_types::models::{BlockId, BlockIdShort, StdAddr};
+use tycho_types::prelude::*;
 use tycho_util::futures::JoinTask;
 
 use crate::config::{LiteClientConfig, NodeInfo};

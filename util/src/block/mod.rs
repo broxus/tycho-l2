@@ -1,13 +1,13 @@
 use ahash::HashMap;
-use everscale_types::cell::Lazy;
-use everscale_types::error::Error;
-use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
+use tycho_types::cell::Lazy;
+use tycho_types::error::Error;
+use tycho_types::merkle::MerkleProof;
+use tycho_types::models::{
     Block, BlockId, BlockIdShort, BlockSignature, BlockchainConfig, CurrencyCollection, ShardIdent,
     ValidatorBaseInfo, ValidatorSet,
 };
-use everscale_types::num::Tokens;
-use everscale_types::prelude::*;
+use tycho_types::num::Tokens;
+use tycho_types::prelude::*;
 
 pub use self::ton::TonModels;
 pub use self::tycho::TychoModels;
@@ -211,7 +211,7 @@ where
 
     let mut result = Vec::with_capacity(block_signatures.len());
     for (i, desc) in vset.list.iter().enumerate() {
-        let key_hash = tl_proto::hash(everscale_crypto::tl::PublicKey::Ed25519 {
+        let key_hash = tl_proto::hash(tycho_crypto::tl::PublicKey::Ed25519 {
             key: desc.public_key.as_array(),
         });
         let Some(signature) = block_signatures.remove(HashBytes::wrap(&key_hash)) else {
@@ -246,7 +246,7 @@ where
 
     let mut weight = 0u64;
     for node in &vset.list {
-        let node_id_short = tl_proto::hash(everscale_crypto::tl::PublicKey::Ed25519 {
+        let node_id_short = tl_proto::hash(tycho_crypto::tl::PublicKey::Ed25519 {
             key: node.public_key.as_ref(),
         });
         let node_id_short = HashBytes::wrap(&node_id_short);
@@ -299,7 +299,7 @@ pub fn make_proof_chain(
         let mut iter = iter.rev();
 
         let remaining = iter.len();
-        let mut child = if remaining % 3 != 0 {
+        let mut child = if !remaining.is_multiple_of(3) {
             let mut b = CellBuilder::new();
             for cell in iter.by_ref().take(remaining % 3).rev() {
                 b.store_reference(cell.clone())?;
@@ -451,10 +451,8 @@ where
     let current_vset = config.get_raw_cell_ref(34)?.ok_or(Error::CellUnderflow)?;
     current_vset.touch_recursive();
 
-    if with_prev_vset {
-        if let Some(prev_vset) = config.get_raw_cell_ref(32)? {
-            prev_vset.touch_recursive();
-        }
+    if with_prev_vset && let Some(prev_vset) = config.get_raw_cell_ref(32)? {
+        prev_vset.touch_recursive();
     }
 
     // Build block proof.
@@ -595,7 +593,7 @@ mod tests {
     use std::path::Path;
 
     use anyhow::{Context, Result};
-    use everscale_types::boc::Boc;
+    use tycho_types::boc::Boc;
 
     use super::*;
 

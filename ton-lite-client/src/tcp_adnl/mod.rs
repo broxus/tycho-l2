@@ -1,17 +1,17 @@
 use std::future::Future;
 use std::pin::pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use ctr::cipher::{KeyIvInit, StreamCipher};
-use everscale_crypto::ed25519;
 use rand::{Rng, RngCore};
 use sha2::Digest;
 use tl_proto::{IntermediateBytes, TlRead, TlWrite};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{Mutex, Notify};
+use tycho_crypto::ed25519;
 use tycho_util::futures::JoinTask;
 use tycho_util::sync::CancellationFlag;
 
@@ -38,7 +38,7 @@ impl TcpAdnl {
             .into_split();
 
         let mut initial_buffer = vec![0; 160];
-        rand::thread_rng().fill_bytes(&mut initial_buffer);
+        rand::rng().fill_bytes(&mut initial_buffer);
 
         let cipher_receive = Aes256Ctr::new(
             generic_array::GenericArray::from_slice(&initial_buffer[0..32]),
@@ -49,7 +49,7 @@ impl TcpAdnl {
             generic_array::GenericArray::from_slice(&initial_buffer[80..96]),
         );
 
-        let client_secret = rand::thread_rng().gen::<ed25519::SecretKey>();
+        let client_secret = rand::rng().random::<ed25519::SecretKey>();
 
         build_handshake_packet(&server_pubkey, &client_secret, &mut initial_buffer);
 
@@ -216,7 +216,7 @@ where
     'outer: loop {
         match socket.read(&mut buffer).await {
             Ok(0) => {
-                return std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "socket closed")
+                return std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "socket closed");
             }
             Ok(n) => {
                 let buffer = &mut buffer[..n];
@@ -280,7 +280,7 @@ pub fn encrypt_data(cipher: &mut Aes256Ctr, data: &mut Vec<u8>) {
     data[..4].copy_from_slice(&((len + 64) as u32).to_le_bytes());
 
     let mut nonce = [0u8; 32];
-    rand::thread_rng().fill(&mut nonce[..]);
+    rand::rng().fill(&mut nonce[..]);
 
     data.extend_from_slice(sha2::Sha256::digest(&data[4..]).as_slice());
 

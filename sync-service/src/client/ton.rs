@@ -1,18 +1,18 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use everscale_types::cell::Lazy;
-use everscale_types::error::Error;
-use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
+use proof_api_util::block::{
+    BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels, TonModels,
+    make_key_block_proof,
+};
+use ton_lite_client::{LiteClient, proto};
+use tycho_types::cell::Lazy;
+use tycho_types::error::Error;
+use tycho_types::merkle::MerkleProof;
+use tycho_types::models::{
     BlockIdShort, BlockchainConfig, CurrencyCollection, OptionalAccount, ShardAccounts,
     ShardHashes, ShardIdent, StdAddr, Transaction,
 };
-use everscale_types::prelude::*;
-use proof_api_util::block::{
-    make_key_block_proof, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
-    BlockchainModels, TonModels,
-};
-use ton_lite_client::{proto, LiteClient};
+use tycho_types::prelude::*;
 
 use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::{AccountStateResponse, GenTimings, LastTransactionId};
@@ -151,12 +151,12 @@ impl NetworkClient for TonClient {
         let last_transaction_id = proofs
             .get_last_transaction_id(&account.address)
             .context("failed to get last transaction id")?;
-        if let Some(lt) = last_transaction_lt {
-            if last_transaction_id.lt == lt {
-                return Ok(AccountStateResponse::Unchanged {
-                    timings: proofs.timings,
-                });
-            }
+        if let Some(lt) = last_transaction_lt
+            && last_transaction_id.lt == lt
+        {
+            return Ok(AccountStateResponse::Unchanged {
+                timings: proofs.timings,
+            });
         }
 
         let cell = Boc::decode(&account_state.state)?;
@@ -180,7 +180,7 @@ impl NetworkClient for TonClient {
         hash: &HashBytes,
         count: u8,
     ) -> Result<Vec<Lazy<Transaction>>> {
-        use everscale_types::boc::de::{BocHeader, Options};
+        use tycho_types::boc::de::{BocHeader, Options};
 
         let res = self
             .rpc
@@ -224,7 +224,7 @@ impl NetworkClient for TonClient {
 }
 
 fn parse_proofs(proofs: Vec<u8>) -> Result<ParsedProofs> {
-    use everscale_types::boc::de::{BocHeader, Options};
+    use tycho_types::boc::de::{BocHeader, Options};
 
     let header = BocHeader::decode(&proofs, &Options {
         max_roots: Some(2),

@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
-use everscale_types::crc::crc_16;
-use everscale_types::models::{Account, AccountState, BlockchainConfig};
+use anyhow::{Result, anyhow};
 use num_bigint::BigInt;
+use tycho_types::crc::crc_16;
+use tycho_types::models::{Account, AccountState, BlockchainConfig};
 use tycho_vm::{GasParams, RcStackValue, SafeRc, SmcInfoBase, VmStateBuilder};
 
 pub trait AsGetterMethodId {

@@ -12,9 +12,8 @@ license.workspace = true
 [dependencies]
 aide = { workspace = true }
 anyhow = { workspace = true }
-axum = { workspace = true }
+axum = { workspace = true, features = ["tokio"] }
 clap = { workspace = true }
-everscale-types = { workspace = true, features = ["sync"] }
 governor = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
@@ -25,6 +24,7 @@ tower = { workspace = true }
 tower-http = { workspace = true, features = ["timeout", "cors"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tycho-types = { workspace = true, features = ["sync"] }
 
 tikv-jemallocator = { workspace = true, features = [
     "unprefixed_malloc_on_supported_platforms",

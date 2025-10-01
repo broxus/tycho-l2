@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use everscale_types::cell::Lazy;
-use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
+use proof_api_util::block::{
+    BaseBlockProof, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
+    BlockchainModels, TychoModels, make_key_block_proof,
+};
+use tycho_types::cell::Lazy;
+use tycho_types::merkle::MerkleProof;
+use tycho_types::models::{
     BlockSignatures, BlockchainConfig, GlobalCapability, StdAddr, Transaction,
 };
-use everscale_types::prelude::*;
-use proof_api_util::block::{
-    make_key_block_proof, BaseBlockProof, BlockchainBlock, BlockchainBlockExtra,
-    BlockchainBlockMcExtra, BlockchainModels, TychoModels,
-};
+use tycho_types::prelude::*;
 
 use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;

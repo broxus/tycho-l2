@@ -1,8 +1,8 @@
 [workspace.package]
-version = "0.1.2"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 authors = ["Broxus Team"]
-rust-version = "1.83.0"
+rust-version = "1.89.0"
 repository = "https://github.com/broxus/tycho-l2"
 license = "MIT OR Apache-2.0"
 
@@ -13,36 +13,34 @@ members = ["sync-service", "proof-api-l2", "proof-api-ton", "ton-lite-client", "
 [workspace.dependencies]
 aes = "0.8"
 ahash = "0.8.11"
-aide = { version = "0.13.4", features = ["axum", "scalar"] }
+aide = { version = "0.15.1", features = ["axum", "axum-tokio", "axum-json", "scalar"] }
 anyhow = "1.0"
 arc-swap = "1.7.1"
 async-trait = "0.1"
-axum = "0.7"
-bytesize = "2.0.1"
+axum = "0.8"
+bytesize = "1.3.3"
 clap = { version = "4.5.3", features = ["derive"] }
 ctr = "0.9"
-dashmap = "5.5"
+dashmap = "6.1"
 ed25519-dalek = "2.1.1"
-everscale-crypto = "0.3"
-everscale-types = { version = "0.1.2", default-features = false }
 fdlimit = "0.3"
 futures-util = "0.3.31"
-generic-array = "0.14"
+generic-array = "0.14.7"
 governor = "0.10.0"
 http = "1.3.1"
 humantime = "2.2"
 num-bigint = "0.4.6"
 num-traits = "0.2"
-rand = "0.8"
+rand = "0.9"
 rayon = "1.10"
 reqwest = { version = "0.12", default-features = false }
 rlimit = "0.10.1"
-schemars = "0.8"
+schemars = "0.9.0"
 scopeguard = "1.2"
 serde = "1.0"
 serde_json = "1.0.114"
 sha2 = "0.10"
-thiserror = "1.0"
+thiserror = "2.0"
 tl-proto = "0.5.3"
 tokio = { version = "1", default-features = false }
 tower = "0.5"
@@ -50,27 +48,26 @@ tower-http = "0.6"
 tower-service = "0.3.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-weedb = "0.4.1"
+tycho-crypto = "0.4"
+tycho-types = { version = "0.3.0", default-features = false }
+weedb = "0.6.0"
 
 tikv-jemallocator = { version = "0.6.0", features = [
     "unprefixed_malloc_on_supported_platforms",
     "background_threads",
 ] }
 
-tycho-block-util = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
-tycho-core = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
-tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
-tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
-tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "71935b0ae793d2679f58140a17efd535cc3856f5" }
+tycho-block-util = { git = "https://github.com/broxus/tycho.git", rev = "00e59baa0157236df06227c59aac640b0f150ce8" }
+tycho-core = { git = "https://github.com/broxus/tycho.git", rev = "00e59baa0157236df06227c59aac640b0f150ce8" }
+tycho-light-node = { git = "https://github.com/broxus/tycho.git", rev = "00e59baa0157236df06227c59aac640b0f150ce8" }
+tycho-storage = { git = "https://github.com/broxus/tycho.git", rev = "00e59baa0157236df06227c59aac640b0f150ce8" }
+tycho-util = { git = "https://github.com/broxus/tycho.git", rev = "00e59baa0157236df06227c59aac640b0f150ce8" }
 
-tycho-vm = { git = "https://github.com/broxus/tycho-vm.git", rev = "c224351e576375430f4a2d66207406998d189946" }
+tycho-vm = { git = "https://github.com/broxus/tycho-vm.git", rev = "56a7eb8e6854087881eb3ff269b4d8b8663458a5" }
 
 # local deps
 proof-api-util = { path = "./util" }
 ton-lite-client = { path = "./ton-lite-client" }
-
-[patch.crates-io]
-everscale-types = { git = "https://github.com/broxus/everscale-types.git", rev = "3c23f629b5b2144d5be596dcb93fd1a146484468" }
 
 [workspace.lints.rust]
 future_incompatible = "warn"
@@ -115,7 +112,6 @@ manual_ok_or = "warn"
 map_err_ignore = "warn"
 map_flatten = "warn"
 map_unwrap_or = "warn"
-match_on_vec_items = "warn"
 match_same_arms = "warn"
 match_wild_err_arm = "warn"
 match_wildcard_for_single_variants = "warn"

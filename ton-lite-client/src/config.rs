@@ -3,8 +3,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use everscale_crypto::ed25519;
 use serde::{Deserialize, Serialize};
+use tycho_crypto::ed25519;
 use tycho_util::serde_helpers;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -57,10 +57,10 @@ impl TonGlobalConfig {
 mod serde_pubkey {
     use std::str::FromStr;
 
-    use everscale_crypto::ed25519;
-    use everscale_types::cell::HashBytes;
     use serde::de::Error;
     use serde::{Deserialize, Deserializer};
+    use tycho_crypto::ed25519;
+    use tycho_types::cell::HashBytes;
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<ed25519::PublicKey, D::Error>
     where

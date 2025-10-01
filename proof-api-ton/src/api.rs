@@ -1,23 +1,22 @@
+use std::borrow::Cow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
-use aide::axum::routing::get_with;
 use aide::axum::ApiRouter;
+use aide::axum::routing::get_with;
 use aide::transform::TransformOperation;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Router};
-use everscale_types::boc::Boc;
-use everscale_types::cell::HashBytes;
 use governor::clock::DefaultClock;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
 use proof_api_util::api::{
-    get_version, prepare_open_api, ApiRouterExt, OpenApiConfig, JSON_HEADERS_CACHE_1W,
-    JSON_HEADERS_DONT_CACHE,
+    ApiRouterExt, JSON_HEADERS_CACHE_1W, JSON_HEADERS_DONT_CACHE, OpenApiConfig, get_version,
+    prepare_open_api,
 };
 use proof_api_util::serde_helpers::TonAddr;
 use schemars::JsonSchema;
@@ -25,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
+use tycho_types::boc::Boc;
+use tycho_types::cell::HashBytes;
 use tycho_util::sync::rayon_run;
 use tycho_util::{FastHashSet, FastHasherState};
 
@@ -114,19 +115,23 @@ pub struct ProofChainResponse {
 struct TxHash(pub HashBytes);
 
 impl schemars::JsonSchema for TxHash {
-    fn schema_name() -> String {
-        "Transaction hash".to_string()
+    fn schema_name() -> Cow<'static, str> {
+        Cow::Borrowed("Transaction hash")
     }
 
-    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::schema::Schema {
-        let schema = gen.subschema_for::<String>();
-        let mut schema = schema.into_object();
-        schema.metadata().description = Some("Transaction hash as hex".to_string());
-        schema.format = Some("[0-9a-fA-F]{64}".to_string());
-        schema.metadata().examples = vec![serde_json::json!(
-            "3333333333333333333333333333333333333333333333333333333333333333"
-        )];
-        schema.into()
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let mut schema = generator.subschema_for::<String>();
+        let object = schema.ensure_object();
+        object.insert("description".into(), "Transaction hash as hex".into());
+        object.insert("format".into(), "[0-9a-fA-F]{64}".into());
+        object.insert(
+            "examples".into(),
+            vec![serde_json::json!(
+                "3333333333333333333333333333333333333333333333333333333333333333"
+            )]
+            .into(),
+        );
+        schema
     }
 }
 

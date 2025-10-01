@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
-use everscale_types::models::{StateInit, StdAddr};
-use everscale_types::prelude::*;
+use tycho_types::models::{StateInit, StdAddr};
+use tycho_types::prelude::*;
 
 pub fn make_state_init(owner: &StdAddr, id: u128) -> StateInit {
     StateInit {

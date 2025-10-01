@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use everscale_types::boc::Boc;
-use everscale_types::cell::HashBytes;
-use everscale_types::error::ParseAddrError;
-use everscale_types::models::{StdAddr, StdAddrFormat};
 use proof_api_ton::client::TonClient;
 use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig};
+use tycho_types::boc::Boc;
+use tycho_types::cell::HashBytes;
+use tycho_types::error::ParseAddrError;
+use tycho_types::models::{StdAddr, StdAddrFormat};
 
 /// Build transaction proof.
 #[derive(Parser)]

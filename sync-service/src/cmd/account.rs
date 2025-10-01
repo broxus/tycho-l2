@@ -1,11 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
-use everscale_types::cell::HashBytes;
-use everscale_types::models::StdAddr;
 use rand::Rng;
 use serde::Serialize;
 use sync_service::service::wallet;
 use sync_service::util::account::compute_address;
+use tycho_types::cell::HashBytes;
+use tycho_types::models::StdAddr;
 
 /// Generate new account.
 #[derive(Parser)]
@@ -26,7 +26,7 @@ impl Cmd {
         let public = match self.public {
             Some(public) => public,
             None => {
-                let secret = secret.insert(rand::thread_rng().gen::<ed25519_dalek::SecretKey>());
+                let secret = secret.insert(rand::rng().random::<ed25519_dalek::SecretKey>());
                 *ed25519_dalek::SigningKey::from_bytes(secret).as_ref()
             }
         };

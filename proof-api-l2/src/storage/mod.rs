@@ -5,23 +5,24 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use arc_swap::{ArcSwap, ArcSwapAny, ArcSwapOption};
 use bytesize::ByteSize;
-use everscale_types::error::Error;
-use everscale_types::models::{
-    BlockId, BlockIdShort, BlockSignature, ShardIdent, StdAddr, ValidatorSet,
-};
-use everscale_types::prelude::*;
 use proof_api_util::block::{self, TychoModels};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tycho_block_util::block::BlockStuff;
-use tycho_storage::{FileDb, Storage};
+use tycho_core::storage::CoreStorage;
+use tycho_storage::fs::Dir;
+use tycho_types::error::Error;
+use tycho_types::models::{
+    BlockId, BlockIdShort, BlockSignature, ShardIdent, StdAddr, ValidatorSet,
+};
+use tycho_types::prelude::*;
 use tycho_util::futures::JoinTask;
 use tycho_util::serde_helpers;
 use tycho_util::sync::CancellationFlag;
 use tycho_util::time::now_sec;
 use weedb::{
-    rocksdb, Caches, MigrationError, OwnedSnapshot, Semver, Tables, VersionProvider, WeeDb,
-    WeeDbRaw,
+    Caches, MigrationError, OwnedSnapshot, Semver, Tables, VersionProvider, WeeDb, WeeDbRaw,
+    rocksdb,
 };
 
 pub mod tables;
@@ -71,7 +72,7 @@ struct Inner {
 }
 
 impl ProofStorage {
-    pub async fn new(root: &FileDb, config: ProofStorageConfig) -> Result<Self> {
+    pub async fn new(root: &Dir, config: ProofStorageConfig) -> Result<Self> {
         const MAX_THREADS: usize = 8;
 
         let caches = weedb::Caches::with_capacity(config.rocksdb_lru_capacity.as_u64() as _);
@@ -127,7 +128,7 @@ impl ProofStorage {
             let db = db.clone();
             let compaction_interval = config.compaction_interval;
             async move {
-                let offset = rand::thread_rng().gen_range(Duration::ZERO..compaction_interval);
+                let offset = rand::rng().random_range(Duration::ZERO..compaction_interval);
                 tokio::time::sleep(offset).await;
 
                 let mut interval = tokio::time::interval(compaction_interval);
@@ -157,7 +158,7 @@ impl ProofStorage {
     }
 
     #[allow(clippy::disallowed_methods)]
-    pub async fn init(&self, storage: &Storage, init_block_id: &BlockId) -> Result<()> {
+    pub async fn init(&self, storage: &CoreStorage, init_block_id: &BlockId) -> Result<()> {
         let handles = storage.block_handle_storage();
         let states = storage.shard_state_storage();
         let blocks = storage.block_storage();
@@ -166,7 +167,7 @@ impl ProofStorage {
         let current_vset = if init_block_id.seqno == 0 {
             // Load zerostate
             let zerostate = states
-                .load_state(init_block_id)
+                .load_state(0, init_block_id)
                 .await
                 .context("failed to load zerostate")?;
 
@@ -436,7 +437,7 @@ impl ProofStorage {
 
             // Add timings for masterchain blocks.
             let remove_bound_rx;
-            if is_masterchain && block_id.seqno % STORE_TIMINGS_STEP == 0 {
+            if is_masterchain && block_id.seqno.is_multiple_of(STORE_TIMINGS_STEP) {
                 let remove_until = now.saturating_sub(min_proof_ttl);
                 let db = db.clone();
 
@@ -665,7 +666,7 @@ async fn trigger_compaction(db: &ProofDb) -> Result<()> {
 }
 
 fn encode_block(file_hash: &HashBytes, cell: Cell) -> Vec<u8> {
-    use everscale_types::boc::ser::BocHeader;
+    use tycho_types::boc::ser::BocHeader;
 
     let mut target = Vec::with_capacity(1024);
     target.extend_from_slice(file_hash.as_slice());
@@ -681,7 +682,7 @@ fn decode_block(data: rocksdb::DBPinnableSlice<'_>) -> anyhow::Result<(HashBytes
 }
 
 fn encode_signatures(vset_utime_since: u32, cell: Cell) -> Vec<u8> {
-    use everscale_types::boc::ser::BocHeader;
+    use tycho_types::boc::ser::BocHeader;
 
     let mut target = Vec::with_capacity(256);
     target.extend_from_slice(&vset_utime_since.to_le_bytes());
@@ -788,17 +789,17 @@ impl VersionProvider for StateVersionProvider {
     fn get_version(&self, db: &WeeDbRaw) -> Result<Option<Semver>, MigrationError> {
         let state = db.instantiate_table::<tables::State>();
 
-        if let Some(db_name) = state.get(Self::DB_NAME_KEY)? {
-            if db_name.as_ref() != self.db_name.as_bytes() {
-                return Err(MigrationError::Custom(
-                    format!(
-                        "expected db name: {}, got: {}",
-                        self.db_name,
-                        String::from_utf8_lossy(db_name.as_ref())
-                    )
-                    .into(),
-                ));
-            }
+        if let Some(db_name) = state.get(Self::DB_NAME_KEY)?
+            && db_name.as_ref() != self.db_name.as_bytes()
+        {
+            return Err(MigrationError::Custom(
+                format!(
+                    "expected db name: {}, got: {}",
+                    self.db_name,
+                    String::from_utf8_lossy(db_name.as_ref())
+                )
+                .into(),
+            ));
         }
 
         let value = state.get(Self::DB_VERSION_KEY)?;

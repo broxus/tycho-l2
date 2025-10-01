@@ -1,13 +1,15 @@
+#[cfg(feature = "api")]
+use std::borrow::Cow;
 use std::str::FromStr;
 
-use everscale_types::models::{StdAddr, StdAddrFormat};
 use serde::{Deserialize, Serialize};
+use tycho_types::models::{StdAddr, StdAddrFormat};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TonAddr(#[serde(with = "ton_address")] pub StdAddr);
 
 impl FromStr for TonAddr {
-    type Err = everscale_types::error::ParseAddrError;
+    type Err = tycho_types::error::ParseAddrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (addr, _) = StdAddr::from_str_ext(s, StdAddrFormat::any())?;
@@ -17,24 +19,28 @@ impl FromStr for TonAddr {
 
 #[cfg(feature = "api")]
 impl schemars::JsonSchema for TonAddr {
-    fn schema_name() -> String {
-        "Address".to_string()
+    fn schema_name() -> Cow<'static, str> {
+        Cow::Borrowed("Address")
     }
 
-    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::schema::Schema {
-        let schema = gen.subschema_for::<String>();
-        let mut schema = schema.into_object();
-        schema.metadata().description = Some("StdAddr in any format".to_string());
-        schema.format = Some("0:[0-9a-fA-F]{64}".to_string());
-        schema.metadata().examples = vec![serde_json::json!(
-            "0:3333333333333333333333333333333333333333333333333333333333333333"
-        )];
-        schema.into()
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let mut schema = generator.subschema_for::<String>();
+        let object = schema.ensure_object();
+        object.insert("description".into(), "StdAddr in any format".into());
+        object.insert("format".into(), "0:[0-9a-fA-F]{64}".into());
+        object.insert(
+            "examples".into(),
+            vec![serde_json::json!(
+                "0:3333333333333333333333333333333333333333333333333333333333333333"
+            )]
+            .into(),
+        );
+        schema
     }
 }
 
 pub mod ton_address {
-    use everscale_types::models::{StdAddr, StdAddrBase64Repr};
+    use tycho_types::models::{StdAddr, StdAddrBase64Repr};
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<StdAddr, D::Error>
     where

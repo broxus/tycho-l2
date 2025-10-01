@@ -1,13 +1,13 @@
-use everscale_types::error::Error;
-use everscale_types::models::{
+use tycho_types::error::Error;
+use tycho_types::models::{
     BlockIdShort, BlockSignature, BlockchainConfig, GlobalVersion, ShardHashes, ShardIdent,
     ValidatorBaseInfo,
 };
-use everscale_types::prelude::*;
+use tycho_types::prelude::*;
 
 use crate::block::{
-    find_shard_descr, AccountBlocksShort, BlockchainBlock, BlockchainBlockExtra,
-    BlockchainBlockInfo, BlockchainBlockMcExtra, BlockchainBlockSignatures, BlockchainModels,
+    AccountBlocksShort, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockInfo,
+    BlockchainBlockMcExtra, BlockchainBlockSignatures, BlockchainModels, find_shard_descr,
 };
 
 pub struct TonModels;

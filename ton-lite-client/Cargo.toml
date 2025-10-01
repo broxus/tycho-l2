@@ -29,8 +29,8 @@ tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-th
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-everscale-crypto = { workspace = true, features = ["tl-proto", "serde"] }
-everscale-types = { workspace = true, features = ["models", "serde", "base64"] }
+tycho-crypto = { workspace = true, features = ["tl-proto", "serde", "rand9"] }
+tycho-types = { workspace = true, features = ["models", "serde", "base64"] }
 tycho-util = { workspace = true }
 
 [dev-dependencies]

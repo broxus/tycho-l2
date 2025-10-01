@@ -1,5 +1,5 @@
-use everscale_types::models::{BlockId, BlockIdShort, BlockSignature, StdAddr};
 use tl_proto::{IntermediateBytes, TlRead, TlWrite};
+use tycho_types::models::{BlockId, BlockIdShort, BlockSignature, StdAddr};
 
 #[derive(TlWrite)]
 #[tl(boxed, id = "adnl.message.query", scheme = "proto.tl")]
@@ -311,8 +311,8 @@ mod tl_string {
 }
 
 pub mod tl_block_id_short {
-    use everscale_types::models::{BlockIdShort, ShardIdent};
     use tl_proto::{TlPacket, TlRead, TlResult, TlWrite};
+    use tycho_types::models::{BlockIdShort, ShardIdent};
 
     pub const SIZE_HINT: usize = 4 + 8 + 4;
 
@@ -343,9 +343,9 @@ pub mod tl_block_id_short {
 }
 
 pub mod tl_block_id_full {
-    use everscale_types::models::BlockId;
-    use everscale_types::prelude::HashBytes;
     use tl_proto::{TlPacket, TlRead, TlResult, TlWrite};
+    use tycho_types::models::BlockId;
+    use tycho_types::prelude::HashBytes;
 
     use super::tl_block_id_short;
 
@@ -403,9 +403,9 @@ pub mod tl_vec_block_id_full {
 }
 
 pub mod tl_account_id {
-    use everscale_types::cell::HashBytes;
-    use everscale_types::models::StdAddr;
     use tl_proto::{TlError, TlPacket, TlRead, TlResult, TlWrite};
+    use tycho_types::cell::HashBytes;
+    use tycho_types::models::StdAddr;
 
     pub const fn size_hint(_: &StdAddr) -> usize {
         4 + 32
@@ -427,8 +427,8 @@ pub mod tl_account_id {
 }
 
 pub mod tl_vec_signature {
-    use everscale_types::models::BlockSignature;
     use tl_proto::{TlPacket, TlResult};
+    use tycho_types::models::BlockSignature;
 
     use super::*;
 
@@ -455,9 +455,9 @@ pub mod tl_vec_signature {
 }
 
 pub mod tl_signature {
-    use everscale_types::cell::HashBytes;
-    use everscale_types::models::{BlockSignature, Signature};
     use tl_proto::{TlError, TlPacket, TlRead, TlResult, TlWrite};
+    use tycho_types::cell::HashBytes;
+    use tycho_types::models::{BlockSignature, Signature};
 
     pub fn size_hint(value: &BlockSignature) -> usize {
         32 + value.signature.0.as_slice().max_size_hint()

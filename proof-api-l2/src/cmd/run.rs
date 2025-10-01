@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use everscale_types::dict::Dict;
-use everscale_types::models::BlockId;
 use futures_util::future::BoxFuture;
 use proof_api_l2::api::ApiConfig;
 use proof_api_l2::storage::{ProofStorage, ProofStorageConfig};
@@ -15,7 +13,9 @@ use tycho_core::block_strider::{
     ArchiveBlockProvider, BlockProviderExt, BlockSubscriber, BlockSubscriberContext,
     BlockchainBlockProvider, ColdBootType, StorageBlockProvider,
 };
-use tycho_storage::{BlockConnection, BlockHandle, NewBlockMeta, Storage};
+use tycho_core::storage::{BlockConnection, BlockHandle, CoreStorage, NewBlockMeta};
+use tycho_types::dict::Dict;
+use tycho_types::models::BlockId;
 use tycho_util::cli::signal;
 use tycho_util::futures::JoinTask;
 
@@ -99,10 +99,12 @@ impl Cmd {
         tracing::info!("created tycho node");
 
         // Open proofs storage.
-        let proofs =
-            ProofStorage::new(node.storage().root(), node_config.user_config.proof_storage)
-                .await
-                .context("failed to create proof storage")?;
+        let proofs = ProofStorage::new(
+            node.storage().context().root_dir(),
+            node_config.user_config.proof_storage,
+        )
+        .await
+        .context("failed to create proof storage")?;
         tracing::info!("created proofs storage");
 
         // Bind API.
@@ -160,7 +162,7 @@ impl Cmd {
 }
 
 pub struct LightSubscriber {
-    storage: Storage,
+    storage: CoreStorage,
     proofs: ProofStorage,
 }
 

@@ -14,8 +14,6 @@ ahash = { workspace = true }
 aide = { workspace = true, optional = true }
 anyhow = { workspace = true }
 axum = { workspace = true, optional = true }
-everscale-crypto = { workspace = true, features = ["tl-proto"] }
-everscale-types = { workspace = true, features = ["models", "base64", "serde"] }
 futures-util = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
@@ -25,9 +23,11 @@ tl-proto = { workspace = true }
 tokio = { workspace = true, optional = true }
 tower-service = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
+tycho-crypto = { workspace = true, features = ["tl-proto"] }
+tycho-types = { workspace = true, features = ["models", "base64", "serde"] }
 
 [dev-dependencies]
-everscale-types = { workspace = true, features = ["models", "base64"] }
+tycho-types = { workspace = true, features = ["models", "base64"] }
 
 [features]
 api = [

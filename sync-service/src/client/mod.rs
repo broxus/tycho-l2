@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use everscale_types::cell::Lazy;
-use everscale_types::models::{
+use serde::Deserialize;
+use tycho_types::cell::Lazy;
+use tycho_types::models::{
     BlockId, BlockSignature, BlockchainConfig, StdAddr, Transaction, ValidatorSet,
 };
-use everscale_types::prelude::*;
-use serde::Deserialize;
+use tycho_types::prelude::*;
 
 pub use self::ton::TonClient;
 pub use self::tycho::TychoClient;
@@ -127,10 +127,10 @@ impl dyn NetworkClient {
                 let tx = raw_tx.load().context("got invalid transaction")?;
                 anyhow::ensure!(tx.lt == last.lt, "last tx lt mismatch");
 
-                if let Some(in_msg) = &tx.in_msg {
-                    if in_msg.repr_hash() == msg_hash {
-                        return Ok(Some(raw_tx));
-                    }
+                if let Some(in_msg) = &tx.in_msg
+                    && in_msg.repr_hash() == msg_hash
+                {
+                    return Ok(Some(raw_tx));
                 }
 
                 last = LastTransactionId {
@@ -183,10 +183,10 @@ impl dyn NetworkClient {
             };
 
             // Message expired.
-            if let Some(expire_at) = expire_at {
-                if timings.gen_utime > expire_at {
-                    return None;
-                }
+            if let Some(expire_at) = expire_at
+                && timings.gen_utime > expire_at
+            {
+                return None;
             }
 
             tracing::trace!(known_lt, %msg_hash, ?expire_at, "poll account");

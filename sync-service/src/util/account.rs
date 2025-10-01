@@ -1,6 +1,6 @@
-use everscale_types::models::{Account, StateInit, StdAddr};
-use everscale_types::prelude::*;
 use serde::{Deserialize, Serialize};
+use tycho_types::models::{Account, StateInit, StdAddr};
+use tycho_types::prelude::*;
 use tycho_util::serde_helpers;
 
 pub fn compute_address(workchain: i8, state_init: &StateInit) -> StdAddr {

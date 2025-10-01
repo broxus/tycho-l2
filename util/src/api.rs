@@ -3,19 +3,20 @@ use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
 
-use aide::axum::routing::{get, get_with, ApiMethodRouter};
 use aide::axum::ApiRouter;
+use aide::axum::routing::{ApiMethodRouter, get, get_with};
 use aide::openapi::OpenApi;
 use aide::scalar::Scalar;
 use aide::transform::TransformOperation;
+use axum::Extension;
 use axum::extract::Request;
 use axum::response::{IntoResponse, Response};
 use axum::serve::IncomingStream;
-use axum::Extension;
 use futures_util::future::BoxFuture;
 use http::{HeaderName, HeaderValue};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tokio::net::TcpListener;
 use tower_service::Service;
 
 pub struct Api {
@@ -26,9 +27,11 @@ impl Api {
     pub async fn bind<A, M, S>(listen_addr: A, app: M) -> std::io::Result<Self>
     where
         A: Into<SocketAddr>,
-        M: for<'a> Service<IncomingStream<'a>, Error = Infallible, Response = S> + Send + 'static,
+        M: for<'a> Service<IncomingStream<'a, TcpListener>, Error = Infallible, Response = S>
+            + Send
+            + 'static,
         S: Service<Request, Response = Response, Error = Infallible> + Clone + Send + 'static,
-        for<'a> <M as Service<IncomingStream<'a>>>::Future: Send,
+        for<'a> <M as Service<IncomingStream<'a, TcpListener>>>::Future: Send,
         S::Future: Send,
     {
         let listen_addr = listen_addr.into();

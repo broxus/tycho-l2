@@ -3,16 +3,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use everscale_types::cell::{CellBuilder, HashBytes};
-use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
-    Account, AccountState, BlockchainConfig, ComputePhase, StdAddr, TxInfo,
-};
-use everscale_types::num::Tokens;
 use num_traits::ToPrimitive;
 use proof_api_util::block::{make_epoch_data, prepare_signatures};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use tycho_types::cell::{CellBuilder, HashBytes};
+use tycho_types::merkle::MerkleProof;
+use tycho_types::models::{Account, AccountState, BlockchainConfig, ComputePhase, StdAddr, TxInfo};
+use tycho_types::num::Tokens;
 use tycho_util::serde_helpers;
 
 use self::wallet::Wallet;
@@ -189,7 +187,7 @@ impl Uploader {
                 "deploying a new epoch data library"
             );
 
-            let id = rand::thread_rng().gen();
+            let id = rand::rng().random();
             let lib_store = self
                 .wallet
                 .deploy_vset_lib(epoch_data, Tokens::new(self.config.lib_store_value), id)

@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
 use anyhow::{Context, Result};
-use everscale_types::models::{BlockId, BlockchainConfig, StdAddr};
-use everscale_types::prelude::*;
 use reqwest::{IntoUrl, Url};
 use serde::{Deserialize, Serialize};
+use tycho_types::models::{BlockId, BlockchainConfig, StdAddr};
+use tycho_types::prelude::*;
 use tycho_util::serde_helpers;
 
 use crate::util::account::AccountStateResponse;
@@ -299,7 +299,7 @@ mod tests {
         let latest_config = client.get_latest_config().await?;
         println!("Seqno: {}", latest_config.seqno);
 
-        let addr = "-1:af8f5f9edad5996c6a84c8fdd64209d2dcbe603fa69467ec4368f0d13c5c585c".parse()?;
+        let addr = "-1:3333333333333333333333333333333333333333333333333333333333333333".parse()?;
         let txs = client.get_transactions(&addr, None, 10).await?;
         assert_eq!(txs.len(), 10);
 
@@ -307,7 +307,7 @@ mod tests {
         let tx = client.get_dst_transaction(&msg).await?;
         assert!(tx.is_none());
 
-        let msg = "1b37f42ac035155b862c1b270c36da59bb11e8cb3701c3fb72fe8e3504169eca".parse()?;
+        let msg = "ed2b462c6a1bd3b4b4f67f5c812d6b271eff1e3553389e0d5430489cc393bfa7".parse()?;
         let tx = client.get_dst_transaction(&msg).await?;
         assert!(tx.is_some());
 

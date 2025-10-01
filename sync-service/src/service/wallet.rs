@@ -2,19 +2,19 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use everscale_types::abi::*;
-use everscale_types::cell::Lazy;
-use everscale_types::models::{
+use tycho_types::abi::*;
+use tycho_types::cell::Lazy;
+use tycho_types::models::{
     AccountState, ExtInMsgInfo, Message, MsgInfo, OwnedRelaxedMessage, RelaxedIntMsgInfo,
     RelaxedMessage, RelaxedMsgInfo, StateInit, StdAddr, Transaction,
 };
-use everscale_types::num::{Tokens, Uint15};
-use everscale_types::prelude::*;
+use tycho_types::num::{Tokens, Uint15};
+use tycho_types::prelude::*;
 use tycho_util::time::now_millis;
 
 use crate::client::NetworkClient;
 use crate::service::lib_store;
-use crate::util::account::{compute_address, AccountStateResponse};
+use crate::util::account::{AccountStateResponse, compute_address};
 
 #[derive(Clone)]
 #[repr(transparent)]

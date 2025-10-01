@@ -1,14 +1,12 @@
 use anyhow::{Context, Result};
-use everscale_types::merkle::MerkleProof;
-use everscale_types::models::{
-    BlockId, BlockRef, ConfigParam34, ShardIdent, StdAddr, ValidatorSet,
-};
-use everscale_types::prelude::*;
 use proof_api_util::block::{
     self, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels,
     TonModels,
 };
-use ton_lite_client::{proto, LiteClient};
+use ton_lite_client::{LiteClient, proto};
+use tycho_types::merkle::MerkleProof;
+use tycho_types::models::{BlockId, BlockRef, ConfigParam34, ShardIdent, StdAddr, ValidatorSet};
+use tycho_types::prelude::*;
 
 #[derive(Clone)]
 pub struct TonClient {
@@ -264,9 +262,9 @@ enum ParseVsetError {
     PrunedVset,
 }
 
-impl From<everscale_types::error::Error> for ParseVsetError {
+impl From<tycho_types::error::Error> for ParseVsetError {
     #[inline]
-    fn from(value: everscale_types::error::Error) -> Self {
+    fn from(value: tycho_types::error::Error) -> Self {
         Self::Invalid(value.into())
     }
 }
