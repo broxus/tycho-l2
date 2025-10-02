@@ -75,7 +75,7 @@ pub fn build_api(config: &ApiConfig, client: TonClient) -> Router {
     let public_api = ApiRouter::new()
         .api_route("/", get_version(crate::BIN_VERSION, crate::BIN_BUILD))
         .api_route(
-            "/v1/proof_chain/:address/:lt/:hash",
+            "/v1/proof_chain/{address}/{lt}/{hash}",
             get_with(get_proof_chain_v1, get_proof_chain_v1_docs),
         )
         .with_docs()
