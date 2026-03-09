@@ -307,7 +307,7 @@ mod tests {
         let tx = client.get_dst_transaction(&msg).await?;
         assert!(tx.is_none());
 
-        let msg = "ed2b462c6a1bd3b4b4f67f5c812d6b271eff1e3553389e0d5430489cc393bfa7".parse()?;
+        let msg = "a1b3f9226abe46ad6721cab8b6891bee8b317fe2bf0ac1053b9c252f4ca69b2a".parse()?;
         let tx = client.get_dst_transaction(&msg).await?;
         assert!(tx.is_some());
 
