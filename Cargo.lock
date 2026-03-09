@@ -2735,10 +2735,12 @@ name = "sync-service"
 version = "0.3.2"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-trait",
  "clap",
  "ed25519-dalek",
  "futures-util",
+ "metrics",
  "num-bigint",
  "num-traits",
  "proof-api-util",

@@ -45,6 +45,23 @@ impl Wallet {
         &self.inner.address
     }
 
+    pub fn min_required_balance(&self) -> Tokens {
+        self.inner.min_required_balance
+    }
+
+    pub async fn current_balance(&self) -> Option<Tokens> {
+        match self
+            .inner
+            .client
+            .get_account_state_with_retries(self.address(), None)
+            .await
+        {
+            AccountStateResponse::Exists { account, .. } => Some(account.balance.tokens),
+            AccountStateResponse::NotExists { .. } => Some(Tokens::ZERO),
+            AccountStateResponse::Unchanged { .. } => None,
+        }
+    }
+
     pub async fn deploy_vset_lib(
         &self,
         epoch_data: Cell,

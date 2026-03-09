@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use num_traits::ToPrimitive;
@@ -12,9 +12,11 @@ use tycho_types::merkle::MerkleProof;
 use tycho_types::models::{Account, AccountState, BlockchainConfig, ComputePhase, StdAddr, TxInfo};
 use tycho_types::num::Tokens;
 use tycho_util::serde_helpers;
+use tycho_util::time::now_sec;
 
 use self::wallet::Wallet;
 use crate::client::{KeyBlockData, NetworkClient};
+use crate::metrics::{UploaderMetricsState, UploaderStatus};
 use crate::util::account::AccountStateResponse;
 use crate::util::getter::ExecutionContext;
 
@@ -42,6 +44,12 @@ pub struct UploaderConfig {
 
     #[serde(default = "default_retry_interval", with = "serde_helpers::humantime")]
     pub retry_interval: Duration,
+
+    #[serde(
+        default = "default_wallet_balance_refresh_interval",
+        with = "serde_helpers::humantime"
+    )]
+    pub wallet_balance_refresh_interval: Duration,
 }
 
 fn default_poll_interval() -> Duration {
@@ -52,9 +60,14 @@ fn default_retry_interval() -> Duration {
     Duration::from_secs(1)
 }
 
+fn default_wallet_balance_refresh_interval() -> Duration {
+    Duration::from_secs(60)
+}
+
 pub struct Uploader {
     src: Arc<dyn NetworkClient>,
     dst: Arc<dyn NetworkClient>,
+    metrics: Arc<UploaderMetricsState>,
     config: UploaderConfig,
     /// Blockchain config of the `dst` network.
     blockchain_config: BlockchainConfig,
@@ -63,12 +76,14 @@ pub struct Uploader {
     wallet: Wallet,
     min_bridge_state_lt: u64,
     last_checked_vset: u32,
+    last_wallet_balance_refresh: Option<Instant>,
 }
 
 impl Uploader {
     pub async fn new(
         src: Arc<dyn NetworkClient>,
         dst: Arc<dyn NetworkClient>,
+        metrics: Arc<UploaderMetricsState>,
         config: UploaderConfig,
     ) -> Result<Self> {
         let blockchain_config = dst
@@ -92,16 +107,21 @@ impl Uploader {
             config.wallet_address,
             wallet.address(),
         );
+        metrics.update(|snapshot| {
+            snapshot.wallet_min_required_balance = wallet.min_required_balance();
+        });
 
         Ok(Self {
             src,
             dst,
+            metrics,
             config,
             blockchain_config,
             key_blocks_cache: Default::default(),
             wallet,
             min_bridge_state_lt: 0,
             last_checked_vset: 0,
+            last_wallet_balance_refresh: None,
         })
     }
 
@@ -112,13 +132,22 @@ impl Uploader {
     pub async fn run(mut self) {
         loop {
             if let Err(e) = self.sync_key_blocks().await {
+                self.metrics.update(|snapshot| {
+                    snapshot.status = UploaderStatus::Retrying;
+                    snapshot.last_error_unix_time = now_sec() as u64;
+                });
                 tracing::error!("failed to sync key blocks: {e:?}");
+            } else {
+                self.metrics
+                    .update(|snapshot| snapshot.status = UploaderStatus::Running);
             }
             tokio::time::sleep(self.config.poll_interval).await;
         }
     }
 
     pub async fn sync_key_blocks(&mut self) -> Result<()> {
+        self.refresh_wallet_balance_if_needed().await;
+
         let current_vset_utime_since = self
             .get_current_epoch_since()
             .await
@@ -128,6 +157,9 @@ impl Uploader {
             tracing::info!(current_vset_utime_since);
             self.last_checked_vset = current_vset_utime_since;
         }
+        self.metrics.update(|snapshot| {
+            snapshot.last_checked_vset = current_vset_utime_since;
+        });
 
         let Some(key_block) = self.find_next_key_block(current_vset_utime_since).await? else {
             tracing::debug!(current_vset_utime_since, "no new key blocks found");
@@ -143,6 +175,8 @@ impl Uploader {
             .key_blocks_cache
             .split_off(&key_block.prev_key_block_seqno);
         self.key_blocks_cache = new_cache;
+        self.metrics
+            .update(|snapshot| snapshot.cached_key_blocks = self.key_blocks_cache.len());
         tracing::debug!(key_blocks_cache_len = self.key_blocks_cache.len());
         Ok(())
     }
@@ -193,6 +227,7 @@ impl Uploader {
                 .deploy_vset_lib(epoch_data, Tokens::new(self.config.lib_store_value), id)
                 .await
                 .context("failed to deploy a library with validator set")?;
+            self.refresh_wallet_balance().await;
             tracing::info!(
                 seqno = %key_block.block_id.seqno,
                 address = %lib_store,
@@ -213,6 +248,7 @@ impl Uploader {
             )
             .await
             .context("failed to store key block proof into bridge contract")?;
+        self.refresh_wallet_balance().await;
         tracing::debug!(
             tx_hash = %tx.repr_hash(),
             "found bridge tx",
@@ -221,6 +257,12 @@ impl Uploader {
         // Check bridge transaction.
         let tx = tx.load()?;
         self.min_bridge_state_lt = tx.lt;
+        self.metrics.update(|snapshot| {
+            snapshot.min_bridge_state_lt = self.min_bridge_state_lt;
+            snapshot.last_sent_key_block_seqno = key_block.block_id.seqno;
+            snapshot.last_sent_key_block_utime = key_block.current_vset.utime_since;
+            snapshot.last_success_unix_time = now_sec() as u64;
+        });
 
         match tx.load_info()? {
             TxInfo::Ordinary(info) => match info.compute_phase {
@@ -275,12 +317,20 @@ impl Uploader {
 
     async fn get_key_block(&mut self, seqno: u32) -> Result<Arc<KeyBlockData>> {
         if let Some(key_block) = self.key_blocks_cache.get(&seqno) {
+            self.metrics.update(|snapshot| {
+                snapshot.cached_key_blocks = self.key_blocks_cache.len();
+                snapshot.last_seen_src_key_block_seqno = key_block.block_id.seqno;
+            });
             return Ok(key_block.clone());
         }
 
         // TODO: Add retries.
         let key_block = self.src.get_key_block(seqno).await.map(Arc::new)?;
         self.key_blocks_cache.insert(seqno, key_block.clone());
+        self.metrics.update(|snapshot| {
+            snapshot.cached_key_blocks = self.key_blocks_cache.len();
+            snapshot.last_seen_src_key_block_seqno = key_block.block_id.seqno;
+        });
 
         tracing::debug!(
             seqno,
@@ -314,6 +364,28 @@ impl Uploader {
         };
 
         get_utime_since().context("invalid getter output")
+    }
+
+    async fn refresh_wallet_balance_if_needed(&mut self) {
+        let Some(last_refresh) = self.last_wallet_balance_refresh else {
+            self.refresh_wallet_balance().await;
+            return;
+        };
+
+        if last_refresh.elapsed() >= self.config.wallet_balance_refresh_interval {
+            self.refresh_wallet_balance().await;
+        }
+    }
+
+    async fn refresh_wallet_balance(&mut self) {
+        let Some(balance) = self.wallet.current_balance().await else {
+            return;
+        };
+
+        self.metrics.update(|snapshot| {
+            snapshot.wallet_balance = balance;
+        });
+        self.last_wallet_balance_refresh = Some(Instant::now());
     }
 
     async fn get_bridge_account(&self) -> Box<Account> {

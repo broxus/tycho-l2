@@ -425,6 +425,9 @@ sync-service run --config config.json
 
 ```json
 {
+  "metrics": {
+    "listen_addr": "0.0.0.0:10000"
+  },
   "workers": [
     {
       "left": {
@@ -436,6 +439,7 @@ sync-service run --config config.json
           "lib_store_value": "30000000",
           "store_vset_value": "100000000",
           "min_required_balance": "1000000000",
+          "wallet_balance_refresh_interval": "60s",
           "wallet_address": "0:fb08b6d52c6c687bdc1b4e4e3b5bc62d7242fc5828c074fd37daece4b49b4aca",
           "wallet_secret": "dcc10f69ff2d8b68851f27e9ac036c07305236dc661e6859786b604161c12247"
         }
@@ -449,6 +453,7 @@ sync-service run --config config.json
           "lib_store_value": "10000000000",
           "store_vset_value": "5000000000",
           "min_required_balance": "10000000000",
+          "wallet_balance_refresh_interval": "60s",
           "wallet_address": "0:fb08b6d52c6c687bdc1b4e4e3b5bc62d7242fc5828c074fd37daece4b49b4aca",
           "wallet_secret": "dcc10f69ff2d8b68851f27e9ac036c07305236dc661e6859786b604161c12247"
         }
@@ -457,6 +462,23 @@ sync-service run --config config.json
   ]
 }
 ```
+
+When `metrics` is configured, the service exports Prometheus metrics at the configured
+listen address.
+
+Current core metrics include:
+
+* `sync_uploader_status{src="...",dst="..."}`: `0` = initializing, `1` = running, `2` = retrying.
+* `sync_uploader_wallet_balance{src="...",dst="...",wallet="..."}`
+* `sync_uploader_wallet_min_required_balance{src="...",dst="...",wallet="..."}`
+* `sync_uploader_last_checked_vset{src="...",dst="..."}`
+* `sync_uploader_min_bridge_state_lt{src="...",dst="..."}`
+* `sync_uploader_cached_key_blocks{src="...",dst="..."}`
+* `sync_uploader_last_seen_src_key_block_seqno{src="...",dst="..."}`
+* `sync_uploader_last_sent_key_block_seqno{src="...",dst="..."}`
+* `sync_uploader_last_sent_key_block_utime{src="...",dst="..."}`
+* `sync_uploader_last_success_unix_time{src="...",dst="..."}`
+* `sync_uploader_last_error_unix_time{src="...",dst="..."}`
 
 ## Contributing
 
