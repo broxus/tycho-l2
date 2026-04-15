@@ -11,7 +11,7 @@ use tycho_types::models::{
 };
 use tycho_types::prelude::*;
 
-use crate::client::{KeyBlockData, NetworkClient};
+use crate::client::{DataToSign, KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;
 use crate::util::jrpc_client::JrpcClient;
 
@@ -92,9 +92,10 @@ impl NetworkClient for TychoClient {
             block_id,
             root,
             prev_key_block_seqno,
-            signatures,
             current_vset: config.get_current_validator_set()?,
             prev_vset: config.get_previous_validator_set()?,
+            data_to_sign: DataToSign::Ordinary,
+            signatures,
         })
     }
 

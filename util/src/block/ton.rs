@@ -1,7 +1,10 @@
+use anyhow::Result;
+use sha2::Digest;
+use tl_proto::{IntermediateBytes, TlRead, TlWrite};
 use tycho_types::error::Error;
 use tycho_types::models::{
-    BlockIdShort, BlockSignature, BlockchainConfig, GlobalVersion, ShardHashes, ShardIdent,
-    ValidatorBaseInfo,
+    BlockId, BlockIdShort, BlockSignature, BlockchainConfig, GlobalVersion, ShardHashes,
+    ShardIdent, ValidatorBaseInfo,
 };
 use tycho_types::prelude::*;
 
@@ -50,6 +53,7 @@ pub struct TonBlockInfo {
     pub gen_utime: u32,
     pub start_lt: u64,
     pub end_lt: u64,
+    pub gen_catchain_seqno: u32,
     pub prev_key_block_seqno: u32,
     pub master_ref: Option<Cell>,
     pub prev_ref: Cell,
@@ -84,7 +88,7 @@ impl<'a> Load<'a> for TonBlockInfo {
         let end_lt = slice.load_u64()?;
 
         let _gen_validator_list_hash_short = slice.load_u32()?;
-        let _gen_catchain_seqno = slice.load_u32()?;
+        let gen_catchain_seqno = slice.load_u32()?;
         let _min_ref_mc_seqno = slice.load_u32()?;
         let prev_key_block_seqno = slice.load_u32()?;
 
@@ -116,6 +120,7 @@ impl<'a> Load<'a> for TonBlockInfo {
             gen_utime,
             start_lt,
             end_lt,
+            gen_catchain_seqno,
             prev_key_block_seqno,
             master_ref,
             prev_ref,
@@ -262,5 +267,183 @@ impl BlockchainBlockSignatures for TonBlockSignatures {
 
     fn signatures(&self) -> Dict<u16, BlockSignature> {
         self.signatures.clone()
+    }
+}
+
+pub fn make_simplex_data_to_sign(
+    block_id: &BlockId,
+    slot: u32,
+    session_id: &[u8; 32],
+    candidate: &[u8],
+) -> Result<Vec<u8>> {
+    let candidate_data = tl_proto::deserialize::<CandidateHashData>(candidate)?;
+    anyhow::ensure!(candidate_data.block_id() == block_id, "block id mismatch");
+
+    let candidate_id = CandidateId {
+        slot,
+        hash: sha2::Sha256::digest(candidate).into(),
+    };
+
+    Ok(tl_proto::serialize(SimplexDataToSign {
+        session_id,
+        data: IntermediateBytes(FinalizeVote { id: &candidate_id }),
+    }))
+}
+
+#[derive(Debug, TlWrite)]
+#[tl(
+    boxed,
+    id = "consensus.dataToSign",
+    scheme_inline = r"
+    consensus.dataToSign
+        session_id:int256
+        data:bytes
+        = consensus.DataToSign;"
+)]
+struct SimplexDataToSign<'a> {
+    session_id: &'a [u8; 32],
+    data: IntermediateBytes<FinalizeVote<'a>>,
+}
+
+#[derive(Debug, TlWrite)]
+#[tl(
+    boxed,
+    id = "consensus.simplex.finalizeVote",
+    scheme_inline = r"
+    consensus.simplex.finalizeVote
+        id:consensus.CandidateId
+        = consensus.simplex.UnsignedVote;"
+)]
+struct FinalizeVote<'a> {
+    id: &'a CandidateId,
+}
+
+#[derive(Debug, TlRead, TlWrite)]
+#[tl(
+    boxed,
+    scheme_inline = r"
+    consensus.candidateHashDataOrdinary
+        block:tonNode.blockIdExt
+        collated_file_hash:int256
+        parent:consensus.CandidateParent
+        = consensus.CandidateHashData;
+    consensus.candidateHashDataEmpty
+        block:tonNode.blockIdExt
+        parent:consensus.candidateId
+        = consensus.CandidateHashData;"
+)]
+enum CandidateHashData {
+    #[tl(id = "consensus.candidateHashDataOrdinary")]
+    Ordinary {
+        #[tl(with = "tl_block_id_full")]
+        block_id: BlockId,
+        collated_file_hash: [u8; 32],
+        parent: CandidateParent,
+    },
+    #[tl(id = "consensus.candidateHashDataEmpty")]
+    Empty {
+        #[tl(with = "tl_block_id_full")]
+        block_id: BlockId,
+        candidate_id: CandidateId,
+    },
+}
+
+impl CandidateHashData {
+    fn block_id(&self) -> &BlockId {
+        match self {
+            CandidateHashData::Ordinary { block_id, .. }
+            | CandidateHashData::Empty { block_id, .. } => block_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, TlRead, TlWrite)]
+#[tl(
+    boxed,
+    scheme_inline = r"
+    consensus.candidateParent id:consensus.CandidateId = consensus.CandidateParent;
+    consensus.candidateWithoutParents = consensus.CandidateParent;"
+)]
+pub enum CandidateParent {
+    #[tl(id = "consensus.candidateParent")]
+    Id(CandidateId),
+    #[tl(id = "consensus.candidateWithoutParents")]
+    Empty,
+}
+
+#[derive(Debug, Clone, Copy, TlRead, TlWrite)]
+#[tl(
+    boxed,
+    id = "consensus.candidateId",
+    scheme_inline = "consensus.candidateId slot:int hash:int256 = consensus.CandidateId;"
+)]
+pub struct CandidateId {
+    pub slot: u32,
+    pub hash: [u8; 32],
+}
+
+mod tl_block_id_full {
+    use tl_proto::{TlPacket, TlRead, TlResult, TlWrite};
+    use tycho_types::models::BlockId;
+    use tycho_types::prelude::HashBytes;
+
+    use super::tl_block_id_short;
+
+    pub const SIZE_HINT: usize = tl_block_id_short::SIZE_HINT + 32 + 32;
+
+    pub const fn size_hint(_: &BlockId) -> usize {
+        SIZE_HINT
+    }
+
+    pub fn write<P: TlPacket>(block_id: &BlockId, packet: &mut P) {
+        tl_block_id_short::write(&block_id.as_short_id(), packet);
+        block_id.root_hash.0.write_to(packet);
+        block_id.file_hash.0.write_to(packet);
+    }
+
+    pub fn read(packet: &mut &[u8]) -> TlResult<BlockId> {
+        let block_id = tl_block_id_short::read(packet)?;
+        let root_hash = HashBytes(<[u8; 32]>::read_from(packet)?);
+        let file_hash = HashBytes(<[u8; 32]>::read_from(packet)?);
+
+        Ok(BlockId {
+            shard: block_id.shard,
+            seqno: block_id.seqno,
+            root_hash,
+            file_hash,
+        })
+    }
+}
+
+mod tl_block_id_short {
+    use tl_proto::{TlPacket, TlRead, TlResult, TlWrite};
+    use tycho_types::models::{BlockIdShort, ShardIdent};
+
+    pub const SIZE_HINT: usize = 4 + 8 + 4;
+
+    #[allow(unused)]
+    pub const fn size_hint(_: &BlockIdShort) -> usize {
+        SIZE_HINT
+    }
+
+    pub fn write<P: TlPacket>(block_id: &BlockIdShort, packet: &mut P) {
+        block_id.shard.workchain().write_to(packet);
+        block_id.shard.prefix().write_to(packet);
+        block_id.seqno.write_to(packet);
+    }
+
+    pub fn read(packet: &mut &[u8]) -> TlResult<BlockIdShort> {
+        let workchain = i32::read_from(packet)?;
+        let prefix = u64::read_from(packet)?;
+        let seqno = u32::read_from(packet)?;
+
+        let shard = ShardIdent::new(workchain, prefix);
+
+        let shard = match shard {
+            None => return Err(tl_proto::TlError::InvalidData),
+            Some(shard) => shard,
+        };
+
+        Ok(BlockIdShort { shard, seqno })
     }
 }

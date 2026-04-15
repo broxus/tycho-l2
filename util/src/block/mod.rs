@@ -238,13 +238,23 @@ pub fn check_signatures<I>(
 where
     I: IntoIterator<Item = Result<BlockSignature, Error>>,
 {
+    let to_sign = Block::build_data_for_sign(block_id);
+    check_signatures_raw(&to_sign, signatures, vset)
+}
+
+pub fn check_signatures_raw<I>(
+    to_sign: &[u8],
+    signatures: I,
+    vset: &ValidatorSet,
+) -> Result<(), Error>
+where
+    I: IntoIterator<Item = Result<BlockSignature, Error>>,
+{
     // Collect signatures into a map.
     let mut signatures = signatures
         .into_iter()
         .map(|x| x.map(|item| (item.node_id_short, item.signature)))
         .collect::<Result<HashMap<_, _>, _>>()?;
-
-    let to_sign = Block::build_data_for_sign(block_id);
 
     let mut weight = 0u64;
     for node in &vset.list {
@@ -254,7 +264,7 @@ where
         let node_id_short = HashBytes::wrap(&node_id_short);
 
         if let Some(signature) = signatures.remove(node_id_short) {
-            if !node.verify_signature(&to_sign, &signature) {
+            if !node.verify_signature(to_sign, &signature) {
                 return Err(Error::InvalidSignature);
             }
 

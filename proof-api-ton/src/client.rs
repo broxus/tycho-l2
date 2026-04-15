@@ -207,9 +207,11 @@ impl TonClient {
             return Err(ParseVsetError::PrunedVset.into());
         };
 
-        let signatures =
-            block::prepare_signatures(forward.signatures.signatures.into_iter().map(Ok), &vset)
-                .context("failed to prepare block signature")?;
+        let signatures = block::prepare_signatures(
+            forward.signatures.into_signatures().into_iter().map(Ok),
+            &vset,
+        )
+        .context("failed to prepare block signature")?;
 
         Ok(McProof {
             header_proof: forward.dest_proof,

@@ -20,7 +20,12 @@ members = [
 [workspace.dependencies]
 aes = "0.8"
 ahash = "0.8.11"
-aide = { version = "0.15.1", features = ["axum", "axum-tokio", "axum-json", "scalar"] }
+aide = { version = "0.15.1", features = [
+    "axum",
+    "axum-tokio",
+    "axum-json",
+    "scalar",
+] }
 anyhow = "1.0"
 arc-swap = "1.7.1"
 async-trait = "0.1"

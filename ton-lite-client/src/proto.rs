@@ -125,12 +125,33 @@ pub struct ShardBlockLink {
 }
 
 #[derive(Debug, TlRead)]
-#[tl(boxed, id = "liteServer.signatureSet", scheme = "proto.tl")]
-pub struct SignatureSet {
-    pub validator_set_hash: u32,
-    pub catchain_seqno: u32,
-    #[tl(with = "tl_vec_signature")]
-    pub signatures: Vec<BlockSignature>,
+#[tl(boxed, scheme = "proto.tl")]
+pub enum SignatureSet {
+    #[tl(id = "liteServer.signatureSet.ordinary")]
+    Ordinary {
+        validator_set_hash: u32,
+        catchain_seqno: u32,
+        #[tl(with = "tl_vec_signature")]
+        signatures: Vec<BlockSignature>,
+    },
+    #[tl(id = "liteServer.signatureSet.simplex")]
+    Simplex {
+        cc_seqno: u32,
+        validator_set_hash: u32,
+        #[tl(with = "tl_vec_signature")]
+        signatures: Vec<BlockSignature>,
+        session_id: [u8; 32],
+        slot: u32,
+        candidate: Vec<u8>,
+    },
+}
+
+impl SignatureSet {
+    pub fn into_signatures(self) -> Vec<BlockSignature> {
+        match self {
+            Self::Ordinary { signatures, .. } | Self::Simplex { signatures, .. } => signatures,
+        }
+    }
 }
 
 #[derive(Debug, TlRead)]

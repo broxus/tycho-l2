@@ -1,12 +1,14 @@
 use anyhow::Result;
+use proof_api_util::block::ton::make_simplex_data_to_sign;
 use proof_api_util::block::{
     BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels, TonModels,
-    check_signatures,
+    check_signatures_raw,
 };
+use ton_lite_client::proto::SignatureSet;
 use ton_lite_client::{LiteClient, LiteClientConfig, TonGlobalConfig, proto};
 use tycho_types::boc::Boc;
 use tycho_types::merkle::MerkleProof;
-use tycho_types::models::{BlockIdShort, BlockchainConfig, OptionalAccount};
+use tycho_types::models::{Block, BlockIdShort, BlockchainConfig, OptionalAccount};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -72,7 +74,7 @@ async fn main() -> Result<()> {
         };
         assert!(key_block_proof.to_key_block);
 
-        let v_set = {
+        let mut v_set = {
             let proof =
                 Boc::decode(&key_block_proof.config_proof)?.parse_exotic::<MerkleProof>()?;
 
@@ -90,9 +92,21 @@ async fn main() -> Result<()> {
             config.get_current_validator_set()?
         };
 
-        let signatures = key_block_proof.signatures.signatures;
+        let to_sign = match &key_block_proof.signatures {
+            SignatureSet::Simplex {
+                slot,
+                session_id,
+                candidate,
+                ..
+            } => make_simplex_data_to_sign(&id, *slot, session_id, candidate)?,
+            SignatureSet::Ordinary { .. } => Block::build_data_for_sign(&id).to_vec(),
+        };
+        let signatures = key_block_proof.signatures.into_signatures();
 
-        check_signatures(&id, signatures.into_iter().map(Ok), &v_set)?;
+        v_set.list.truncate(v_set.main.get() as usize);
+        v_set.total_weight = v_set.list.iter().map(|item| item.weight).sum();
+
+        check_signatures_raw(&to_sign, signatures.into_iter().map(Ok), &v_set)?;
     }
 
     // Get blockchain config

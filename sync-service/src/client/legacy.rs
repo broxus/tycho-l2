@@ -15,7 +15,7 @@ use tycho_types::models::{
 use tycho_types::prelude::*;
 use tycho_util::serde_helpers;
 
-use crate::client::{KeyBlockData, NetworkClient};
+use crate::client::{DataToSign, KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;
 
 pub struct LegacyClient {
@@ -239,6 +239,7 @@ impl NetworkClient for LegacyClient {
             prev_key_block_seqno,
             current_vset: config.get_current_validator_set()?,
             prev_vset: config.get_previous_validator_set()?,
+            data_to_sign: DataToSign::Ordinary,
             signatures,
         })
     }

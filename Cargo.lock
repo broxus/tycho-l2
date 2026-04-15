@@ -2013,6 +2013,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "tl-proto",
  "tokio",
  "tower-service",

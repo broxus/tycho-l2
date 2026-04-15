@@ -4,6 +4,7 @@ use proof_api_util::block::{
     BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels, TonModels,
     make_key_block_proof,
 };
+use ton_lite_client::proto::SignatureSet;
 use ton_lite_client::{LiteClient, proto};
 use tycho_types::cell::Lazy;
 use tycho_types::error::Error;
@@ -14,6 +15,7 @@ use tycho_types::models::{
 };
 use tycho_types::prelude::*;
 
+use super::DataToSign;
 use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::{AccountStateResponse, GenTimings, LastTransactionId};
 
@@ -122,13 +124,32 @@ impl NetworkClient for TonClient {
             anyhow::bail!("key block proof not found");
         };
 
+        let (data_to_sign, signatures) = match proof.signatures {
+            SignatureSet::Ordinary { signatures, .. } => (DataToSign::Ordinary, signatures),
+            SignatureSet::Simplex {
+                signatures,
+                session_id,
+                slot,
+                candidate,
+                ..
+            } => (
+                DataToSign::Simplex {
+                    slot,
+                    session_id,
+                    candidate,
+                },
+                signatures,
+            ),
+        };
+
         Ok(KeyBlockData {
             block_id: key_block_id,
             root,
             prev_key_block_seqno,
-            signatures: proof.signatures.signatures,
             current_vset: config.get_current_validator_set()?,
             prev_vset: config.get_previous_validator_set()?,
+            data_to_sign,
+            signatures,
         })
     }
 

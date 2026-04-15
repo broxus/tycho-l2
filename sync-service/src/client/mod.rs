@@ -205,7 +205,18 @@ pub struct KeyBlockData {
     pub prev_key_block_seqno: u32,
     pub current_vset: ValidatorSet,
     pub prev_vset: Option<ValidatorSet>,
+    pub data_to_sign: DataToSign,
     pub signatures: Vec<BlockSignature>,
+}
+
+#[derive(Debug)]
+pub enum DataToSign {
+    Ordinary,
+    Simplex {
+        slot: u32,
+        session_id: [u8; 32],
+        candidate: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
