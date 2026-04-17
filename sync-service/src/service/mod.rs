@@ -192,8 +192,11 @@ impl Uploader {
         let Some(prev_vset) = key_block.prev_vset.as_ref() else {
             anyhow::bail!("no prev_vset found");
         };
-        let signatures =
-            prepare_signatures(key_block.signatures.iter().cloned().map(Ok), prev_vset)?;
+        let signatures = prepare_signatures(
+            &key_block.data_to_sign,
+            key_block.signatures.iter().cloned().map(Ok),
+            prev_vset,
+        )?;
 
         // Deploy library with the next epoch data.
         let epoch_data =

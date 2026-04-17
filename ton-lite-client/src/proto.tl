@@ -76,13 +76,6 @@ liteServer.nonfinal.candidateInfo id:liteServer.nonfinal.candidateId available:B
 liteServer.nonfinal.validatorGroupInfo next_block_id:tonNode.blockId cc_seqno:int prev:(vector tonNode.blockIdExt) candidates:(vector liteServer.nonfinal.candidateInfo) = liteServer.nonfinal.ValidatorGroupInfo;
 liteServer.nonfinal.validatorGroups groups:(vector liteServer.nonfinal.validatorGroupInfo) = liteServer.nonfinal.ValidatorGroups;
 
-consensus.candidateId slot:int hash:int256 = consensus.CandidateId;
-consensus.candidateParent id:consensus.CandidateId = consensus.CandidateParent;
-consensus.candidateWithoutParents = consensus.CandidateParent;
-
-consensus.candidateHashDataOrdinary block:tonNode.blockIdExt collated_file_hash:int256 parent:consensus.CandidateParent = consensus.CandidateHashData;
-consensus.candidateHashDataEmpty block:tonNode.blockIdExt parent:consensus.candidateId = consensus.CandidateHashData;
-
 ---functions---
 
 liteServer.getMasterchainInfo = liteServer.MasterchainInfo;

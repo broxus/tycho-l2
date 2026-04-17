@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use proof_api_util::block::{
     BaseBlockProof, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra,
-    BlockchainModels, TychoModels, make_key_block_proof,
+    BlockchainModels, DataToSign, TychoModels, make_key_block_proof,
 };
 use tycho_types::cell::Lazy;
 use tycho_types::merkle::MerkleProof;
@@ -11,7 +11,7 @@ use tycho_types::models::{
 };
 use tycho_types::prelude::*;
 
-use crate::client::{DataToSign, KeyBlockData, NetworkClient};
+use crate::client::{KeyBlockData, NetworkClient};
 use crate::util::account::AccountStateResponse;
 use crate::util::jrpc_client::JrpcClient;
 

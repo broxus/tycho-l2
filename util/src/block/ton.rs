@@ -332,7 +332,7 @@ struct FinalizeVote<'a> {
         parent:consensus.candidateId
         = consensus.CandidateHashData;"
 )]
-enum CandidateHashData {
+pub enum CandidateHashData {
     #[tl(id = "consensus.candidateHashDataOrdinary")]
     Ordinary {
         #[tl(with = "tl_block_id_full")]
@@ -349,10 +349,38 @@ enum CandidateHashData {
 }
 
 impl CandidateHashData {
+    const TLB_TAG_ORDINARY: u8 = 0x0;
+    const TLB_TAG_EMPTY: u8 = 0x1;
+
     fn block_id(&self) -> &BlockId {
         match self {
             CandidateHashData::Ordinary { block_id, .. }
             | CandidateHashData::Empty { block_id, .. } => block_id,
+        }
+    }
+}
+
+impl Store for CandidateHashData {
+    fn store_into(&self, b: &mut CellBuilder, cx: &dyn CellContext) -> Result<(), Error> {
+        match self {
+            CandidateHashData::Ordinary {
+                block_id,
+                collated_file_hash,
+                parent,
+            } => {
+                b.store_small_uint(Self::TLB_TAG_ORDINARY, 4)?;
+                b.store_u32(block_id.seqno)?;
+                b.store_u256(HashBytes::wrap(collated_file_hash))?;
+                parent.store_into(b, cx)
+            }
+            CandidateHashData::Empty {
+                block_id,
+                candidate_id,
+            } => {
+                b.store_small_uint(Self::TLB_TAG_EMPTY, 4)?;
+                b.store_u32(block_id.seqno)?;
+                candidate_id.store_into(b, cx)
+            }
         }
     }
 }
@@ -371,6 +399,16 @@ pub enum CandidateParent {
     Empty,
 }
 
+impl Store for CandidateParent {
+    fn store_into(&self, b: &mut CellBuilder, cx: &dyn CellContext) -> Result<(), Error> {
+        let candidate_id = match self {
+            Self::Id(id) => Some(id),
+            Self::Empty => None,
+        };
+        Option::<&CandidateId>::store_into(&candidate_id, b, cx)
+    }
+}
+
 #[derive(Debug, Clone, Copy, TlRead, TlWrite)]
 #[tl(
     boxed,
@@ -380,6 +418,13 @@ pub enum CandidateParent {
 pub struct CandidateId {
     pub slot: u32,
     pub hash: [u8; 32],
+}
+
+impl Store for CandidateId {
+    fn store_into(&self, b: &mut CellBuilder, _: &dyn CellContext) -> Result<(), Error> {
+        b.store_u32(self.slot)?;
+        b.store_u256(HashBytes::wrap(&self.hash))
+    }
 }
 
 mod tl_block_id_full {

@@ -10,6 +10,7 @@ use tycho_types::num::Tokens;
 use tycho_types::prelude::*;
 
 pub use self::legacy::LegacyModels;
+use self::ton::CandidateHashData;
 pub use self::ton::TonModels;
 pub use self::tycho::TychoModels;
 
@@ -188,8 +189,22 @@ pub fn make_epoch_data(vset: &ValidatorSet) -> Result<Cell, Error> {
     b.build()
 }
 
+#[derive(Debug)]
+pub enum DataToSign {
+    Ordinary,
+    Simplex {
+        slot: u32,
+        session_id: [u8; 32],
+        candidate: Vec<u8>,
+    },
+}
+
 /// Prepares a signatures dict with validator indices as keys.
-pub fn prepare_signatures<I>(signatures: I, vset: &ValidatorSet) -> Result<Cell, Error>
+pub fn prepare_signatures<I>(
+    data_to_sign: &DataToSign,
+    signatures: I,
+    vset: &ValidatorSet,
+) -> Result<Cell, Error>
 where
     I: IntoIterator<Item = Result<BlockSignature, Error>>,
 {
@@ -227,7 +242,26 @@ where
     }
 
     let signatures = Dict::try_from_sorted_slice(&result)?;
-    signatures.into_root().ok_or(Error::EmptyProof)
+    let signatures_root = signatures.into_root().ok_or(Error::EmptyProof)?;
+
+    match data_to_sign {
+        DataToSign::Ordinary => Ok(signatures_root),
+        DataToSign::Simplex {
+            slot,
+            session_id,
+            candidate,
+        } => {
+            let candidate_data = tl_proto::deserialize::<CandidateHashData>(candidate)
+                .map_err(|_e| Error::InvalidData)?;
+
+            CellBuilder::build_from((
+                signatures_root,
+                slot,
+                HashBytes::wrap(session_id),
+                CellBuilder::build_from(&candidate_data)?,
+            ))
+        }
+    }
 }
 
 pub fn check_signatures<I>(

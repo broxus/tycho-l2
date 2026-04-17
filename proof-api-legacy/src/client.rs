@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use proof_api_util::block::{
     self, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels,
-    LegacyModels,
+    DataToSign, LegacyModels,
 };
 use proof_api_util::serde_helpers::{gql_shard_prefix, gql_u64};
 use reqwest::{IntoUrl, Url};
@@ -112,8 +112,12 @@ impl LegacyClient {
                 anyhow::bail!("masterchain block must contain signatures");
             };
 
-            signatures = block::prepare_signatures(loaded_signatures.into_iter().map(Ok), &vset)
-                .context("failed to prepare block signatures")?;
+            signatures = block::prepare_signatures(
+                &DataToSign::Ordinary,
+                loaded_signatures.into_iter().map(Ok),
+                &vset,
+            )
+            .context("failed to prepare block signatures")?;
         } else {
             let Some(loaded_mc_block) = self
                 .get_block(BlockQueryBy::Seqno(BlockIdShort {
@@ -130,8 +134,12 @@ impl LegacyClient {
                 anyhow::bail!("masterchain block must contain signatures");
             };
 
-            signatures = block::prepare_signatures(loaded_signatures.into_iter().map(Ok), &vset)
-                .context("failed to prepare block signatures")?;
+            signatures = block::prepare_signatures(
+                &DataToSign::Ordinary,
+                loaded_signatures.into_iter().map(Ok),
+                &vset,
+            )
+            .context("failed to prepare block signatures")?;
 
             let mc =
                 block::make_mc_proof::<LegacyModels>(loaded_mc_block.root, loaded.block_id.shard)

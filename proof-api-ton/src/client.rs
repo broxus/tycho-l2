@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use proof_api_util::block::{
     self, BlockchainBlock, BlockchainBlockExtra, BlockchainBlockMcExtra, BlockchainModels,
-    TonModels,
+    DataToSign, TonModels,
 };
 use ton_lite_client::{LiteClient, proto};
 use tycho_types::merkle::MerkleProof;
@@ -207,11 +207,27 @@ impl TonClient {
             return Err(ParseVsetError::PrunedVset.into());
         };
 
-        let signatures = block::prepare_signatures(
-            forward.signatures.into_signatures().into_iter().map(Ok),
-            &vset,
-        )
-        .context("failed to prepare block signature")?;
+        let (data_to_sign, signatures) = match forward.signatures {
+            proto::SignatureSet::Ordinary { signatures, .. } => (DataToSign::Ordinary, signatures),
+            proto::SignatureSet::Simplex {
+                signatures,
+                session_id,
+                slot,
+                candidate,
+                ..
+            } => (
+                DataToSign::Simplex {
+                    slot,
+                    session_id,
+                    candidate,
+                },
+                signatures,
+            ),
+        };
+
+        let signatures =
+            block::prepare_signatures(&data_to_sign, signatures.into_iter().map(Ok), &vset)
+                .context("failed to prepare block signature")?;
 
         Ok(McProof {
             header_proof: forward.dest_proof,

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use arc_swap::{ArcSwap, ArcSwapAny, ArcSwapOption};
 use bytesize::ByteSize;
-use proof_api_util::block::{self, TychoModels};
+use proof_api_util::block::{self, DataToSign, TychoModels};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tycho_block_util::block::BlockStuff;
@@ -402,8 +402,12 @@ impl ProofStorage {
                 let vset = vset.clone();
                 let (signatures_tx, signatures_rx) = tokio::sync::oneshot::channel();
                 rayon::spawn(move || {
-                    let res = block::prepare_signatures(signatures.values(), &vset)
-                        .map(|cell| encode_signatures(vset.utime_since, cell));
+                    let res = block::prepare_signatures(
+                        &DataToSign::Ordinary,
+                        signatures.values(),
+                        &vset,
+                    )
+                    .map(|cell| encode_signatures(vset.utime_since, cell));
 
                     signatures_tx.send(res).ok();
                 });

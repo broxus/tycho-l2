@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use proof_api_util::block::DataToSign;
 use serde::Deserialize;
 use tycho_types::cell::Lazy;
 use tycho_types::models::{
@@ -207,16 +208,6 @@ pub struct KeyBlockData {
     pub prev_vset: Option<ValidatorSet>,
     pub data_to_sign: DataToSign,
     pub signatures: Vec<BlockSignature>,
-}
-
-#[derive(Debug)]
-pub enum DataToSign {
-    Ordinary,
-    Simplex {
-        slot: u32,
-        session_id: [u8; 32],
-        candidate: Vec<u8>,
-    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
