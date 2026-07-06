@@ -9,8 +9,8 @@ use reqwest::{IntoUrl, Url};
 use serde::{Deserialize, Serialize};
 use tycho_types::cell::Lazy;
 use tycho_types::models::{
-    AutoSignatureContext, BlockId, BlockSignature, BlockchainConfig, ShardIdent, Signature,
-    StdAddr, Transaction,
+    BlockId, BlockSignature, BlockchainConfig, ShardIdent, Signature, SignatureContext, StdAddr,
+    Transaction,
 };
 use tycho_types::prelude::*;
 use tycho_util::serde_helpers;
@@ -75,7 +75,7 @@ impl NetworkClient for LegacyClient {
         &self.name
     }
 
-    async fn get_signature_context(&self) -> Result<AutoSignatureContext> {
+    async fn get_signature_context(&self) -> Result<SignatureContext> {
         Err(anyhow::anyhow!("unimplemented"))
     }
 

@@ -8,8 +8,7 @@ use proof_api_util::block::DataToSign;
 use serde::Deserialize;
 use tycho_types::cell::Lazy;
 use tycho_types::models::{
-    AutoSignatureContext, BlockId, BlockSignature, BlockchainConfig, StdAddr, Transaction,
-    ValidatorSet,
+    BlockId, BlockSignature, BlockchainConfig, SignatureContext, StdAddr, Transaction, ValidatorSet,
 };
 use tycho_types::prelude::*;
 
@@ -26,7 +25,7 @@ mod tycho;
 pub trait NetworkClient: Send + Sync {
     fn name(&self) -> &str;
 
-    async fn get_signature_context(&self) -> Result<AutoSignatureContext>;
+    async fn get_signature_context(&self) -> Result<SignatureContext>;
 
     async fn get_latest_key_block_seqno(&self) -> Result<u32>;
 

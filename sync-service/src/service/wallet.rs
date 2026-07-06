@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use tycho_types::abi::*;
 use tycho_types::cell::Lazy;
 use tycho_types::models::{
-    AccountState, ExtInMsgInfo, Message, MsgInfo, OwnedRelaxedMessage, RelaxedIntMsgInfo,
-    RelaxedMessage, RelaxedMsgInfo, StateInit, StdAddr, Transaction,
+    AccountState, OwnedRelaxedMessage, RelaxedIntMsgInfo, RelaxedMessage, RelaxedMsgInfo,
+    StateInit, StdAddr, Transaction,
 };
 use tycho_types::num::{Tokens, Uint15};
 use tycho_types::prelude::*;
@@ -227,33 +227,18 @@ impl Wallet {
 
         let now_ms = now_millis();
         let expire_at = (now_ms / 1000) as u32 + ttl;
-        let body = {
-            let body = methods::send_transaction()
-                .encode_external(&inputs)
-                .with_address(&this.address)
-                .with_time(now_ms)
-                .with_expire_at(expire_at)
-                .with_pubkey((*this.key).as_ref())
-                .build_input()?;
-
-            // TODO: Move into tycho-types
-            let signature = signature_context.sign(&this.key, body.hash.as_slice());
-            body.with_signature(&signature)?
-        };
-
-        let message_cell = CellBuilder::build_from(Message {
-            info: MsgInfo::ExtIn(ExtInMsgInfo {
-                src: None,
-                dst: this.address.clone().into(),
-                ..Default::default()
-            }),
-            init,
-            body: body.as_slice()?,
-            layout: None,
-        })?;
+        let msg = methods::send_transaction()
+            .encode_external(&inputs)
+            .with_time(now_ms)
+            .with_expire_at(expire_at)
+            .with_pubkey((*this.key).as_ref())
+            .build_message(&this.address)?
+            .with_state_init_opt(init)
+            .sign(&this.key, signature_context)?;
+        let msg = CellBuilder::build_from(msg)?;
 
         this.client
-            .send_message_reliable(&this.address, message_cell, known_lt, expire_at)
+            .send_message_reliable(&this.address, msg, known_lt, expire_at)
             .await
     }
 

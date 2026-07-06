@@ -10,8 +10,8 @@ use tycho_types::cell::Lazy;
 use tycho_types::error::Error;
 use tycho_types::merkle::MerkleProof;
 use tycho_types::models::{
-    AutoSignatureContext, BlockIdShort, BlockchainConfig, CurrencyCollection, OptionalAccount,
-    ShardAccounts, ShardHashes, ShardIdent, StdAddr, Transaction,
+    BlockIdShort, BlockchainConfig, CurrencyCollection, OptionalAccount, ShardAccounts,
+    ShardHashes, ShardIdent, SignatureContext, StdAddr, Transaction,
 };
 use tycho_types::prelude::*;
 
@@ -39,8 +39,8 @@ impl NetworkClient for TonClient {
         &self.name
     }
 
-    async fn get_signature_context(&self) -> Result<AutoSignatureContext> {
-        Ok(AutoSignatureContext {
+    async fn get_signature_context(&self) -> Result<SignatureContext> {
+        Ok(SignatureContext {
             global_id: 0,
             capabilities: Default::default(),
         })
