@@ -480,6 +480,34 @@ Current core metrics include:
 * `sync_uploader_last_success_unix_time{src="...",dst="..."}`
 * `sync_uploader_last_error_unix_time{src="...",dst="..."}`
 
+#### Dashboard
+
+Generate a Grafana dashboard JSON for sync-service metrics:
+
+```bash
+./scripts/run-py.sh ./scripts/gen-dashboard.py dashboard.json
+```
+
+Import the resulting `dashboard.json` into Grafana.
+
+To check that the dashboard covers metrics exported from the repo:
+
+```bash
+./scripts/run-py.sh ./scripts/check-metrics.py
+```
+
+To format Python scripts:
+
+```bash
+./scripts/run-py.sh -m ruff format scripts
+```
+
+If you want to prepare the Python environment in advance:
+
+```bash
+./scripts/install-python-deps.sh
+```
+
 ## Contributing
 
 We welcome contributions to the project! If you notice any issues or errors,
